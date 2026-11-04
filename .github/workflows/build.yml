@@ -2,7 +2,7 @@ name: iOS Simulator Build
 on: { push: { branches: [main] }, workflow_dispatch: {} }
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
