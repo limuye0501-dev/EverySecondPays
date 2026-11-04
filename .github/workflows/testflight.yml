@@ -1,0 +1,53 @@
+name: TestFlight
+on: { workflow_dispatch: {}, push: { tags: ['v*'] } }
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env: { TEAM_ID: D53V28KTGW }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -viE 'beta|RC' | sort -V | tail -1); sudo xcode-select -s "$XC"; xcodebuild -version
+      - run: brew install xcodegen && xcodegen generate
+      - name: ASC API key
+        env: { P8_B64: "${{ secrets.ASC_KEY_P8 }}", KEY_ID: "${{ secrets.ASC_KEY_ID }}" }
+        run: |
+          mkdir -p ~/private_keys; KP=~/private_keys/AuthKey_${KEY_ID}.p8
+          echo "$P8_B64" | base64 --decode > $KP; echo "ASC_KEY_PATH=$KP" >> $GITHUB_ENV
+      - name: Import distribution certificate
+        env: { P12_B64: "${{ secrets.DIST_CERT_P12 }}", P12_PASS: "${{ secrets.DIST_CERT_PASSWORD }}" }
+        run: |
+          KC=$RUNNER_TEMP/b.keychain-db; KCP=$(openssl rand -hex 12)
+          echo "$P12_B64" | base64 --decode > $RUNNER_TEMP/d.p12
+          security create-keychain -p "$KCP" $KC; security set-keychain-settings -lut 21600 $KC; security unlock-keychain -p "$KCP" $KC
+          security import $RUNNER_TEMP/d.p12 -P "$P12_PASS" -A -t cert -f pkcs12 -k $KC
+          security set-key-partition-list -S apple-tool:,apple: -k "$KCP" $KC >/dev/null
+          security list-keychains -d user -s $KC $(security list-keychains -d user | tr -d '"')
+      - name: Archive (automatic signing via API key)
+        env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER_ID: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: |
+          set -o pipefail
+          xcodebuild archive -project EverySecondPays.xcodeproj -scheme EverySecondPays -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/App.xcarchive \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)|rovision" || true
+          grep -q "ARCHIVE SUCCEEDED" archive.log
+      - name: Export & upload to TestFlight
+        env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER_ID: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: |
+          cat > EO.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>method</key><string>app-store-connect</string><key>destination</key><string>upload</string>
+          <key>teamID</key><string>${TEAM_ID}</string><key>signingStyle</key><string>automatic</string>
+          <key>uploadSymbols</key><true/><key>manageAppVersionAndBuildNumber</key><false/></dict></plist>
+          PLIST
+          set -o pipefail
+          xcodebuild -exportArchive -archivePath build/App.xcarchive -exportOptionsPlist EO.plist -exportPath build/export \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee export.log
+          grep -qE "EXPORT SUCCEEDED|Upload succeeded" export.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: testflight-logs, path: "*.log" }

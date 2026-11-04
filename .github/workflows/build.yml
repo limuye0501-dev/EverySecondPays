@@ -2,13 +2,13 @@ name: iOS Simulator Build
 on: { push: { branches: [main] }, workflow_dispatch: {} }
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 26
+      - name: Select latest Xcode
         run: |
-          XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -viE 'beta|RC' | sort -V | tail -1); sudo xcode-select -s "$XC"; xcodebuild -version
+          XC=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|RC' | sort -V | tail -1); sudo xcode-select -s "$XC"; xcodebuild -version
       - run: brew install xcodegen && xcodegen generate
       - name: Build
         run: |
