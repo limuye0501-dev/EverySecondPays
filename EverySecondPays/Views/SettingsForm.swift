@@ -26,6 +26,10 @@ struct WorkFields: View {
             DatePicker("settings.end", selection: minutesBinding(\.endMinutes), displayedComponents: .hourAndMinute)
         }
     }
+    private func minutesBinding(_ kp: WritableKeyPath<WorkSettings, Int>) -> Binding<Date> {
+        Binding(get: { Calendar.current.startOfDay(for: .now).addingTimeInterval(Double(s[keyPath: kp]) * 60) },
+                set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); s[keyPath: kp] = (c.hour ?? 0) * 60 + (c.minute ?? 0) })
+    }
 }
 
 /// Pro-only: lunch, overtime, year-end bonus.
@@ -53,10 +57,6 @@ struct ProFields: View {
         } footer: {
             if !isPro { Button("paywall.unlock", action: onLocked) }
         }
-    }
-    private func minutesBinding(_ kp: WritableKeyPath<WorkSettings, Int>) -> Binding<Date> {
-        Binding(get: { Calendar.current.startOfDay(for: .now).addingTimeInterval(Double(s[keyPath: kp]) * 60) },
-                set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); s[keyPath: kp] = (c.hour ?? 0) * 60 + (c.minute ?? 0) })
     }
 }
 
