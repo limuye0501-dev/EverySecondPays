@@ -11,6 +11,7 @@
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
 <key>AppGroupID</key><string>$(APP_GROUP)</string>
 <key>NSSupportsLiveActivities</key><true/>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>UIRequiresFullScreen</key><true/>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
