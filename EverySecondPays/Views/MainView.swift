@@ -50,6 +50,13 @@ struct MainView: View {
             if store.earnings.isEarning(d) { tick &+= 1 }
             if Int(d.timeIntervalSince1970) % 60 == 0, iap.isPro { LiveActivityManager.startOrUpdate(store.earnings) }
         }
+        .task {
+            switch UserDefaults.standard.string(forKey: "ESPDemo") {
+            case "paywall": showPaywall = true
+            case "settings": showSettings = true
+            default: break
+            }
+        }
         .onAppear { if iap.isPro { LiveActivityManager.startOrUpdate(e) } }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store) }
         .sheet(isPresented: $showPaywall) { PaywallView() }
