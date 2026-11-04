@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Xcode 26
         run: |
-          XC=$(ls -d /Applications/Xcode_*.app; ls -d /Applications/Xcode_2[6-9]*.app | grep -viE "beta|RC" | sort -V | tail -1); [ -n "$XC" ] || { echo NO_XCODE_26; exit 1; }; sudo xcode-select -s "$XC"; xcodebuild -version
+          ls -d /Applications/Xcode_*.app; XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -viE "beta|RC" | sort -V | tail -1); [ -n "$XC" ] || { echo NO_XCODE_26; exit 1; }; sudo xcode-select -s "$XC"; xcodebuild -version
       - run: brew install xcodegen && xcodegen generate
       - name: ASC API key
         env: { P8_B64: "${{ secrets.ASC_KEY_P8 }}", KEY_ID: "${{ secrets.ASC_KEY_ID }}" }
