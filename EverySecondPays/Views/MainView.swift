@@ -51,6 +51,7 @@ struct MainView: View {
             if Int(d.timeIntervalSince1970) % 60 == 0, iap.isPro { LiveActivityManager.startOrUpdate(store.earnings) }
         }
         .task {
+            try? await Task.sleep(for: .seconds(1.5))
             switch UserDefaults.standard.string(forKey: "ESPDemo") {
             case "paywall": showPaywall = true
             case "settings": showSettings = true
