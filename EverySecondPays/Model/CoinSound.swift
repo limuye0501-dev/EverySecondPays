@@ -13,7 +13,8 @@ final class CoinSound {
     func prepare(_ settings: WorkSettings) {
         s = settings
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
-        guard let url = Bundle.main.url(forResource: settings.soundID, withExtension: "wav") else { return }
+        let id = Entitlements.allows(sound: settings.soundID) ? settings.soundID : SoundOption.pennySlot.rawValue
+        guard let url = Bundle.main.url(forResource: id, withExtension: "wav") else { return }
         players = (0..<3).compactMap { _ in try? AVAudioPlayer(contentsOf: url) }   // round-robin so overlaps ring out
         players.forEach { $0.volume = settings.volume; $0.prepareToPlay() }
         haptic.prepare()

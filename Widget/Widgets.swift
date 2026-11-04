@@ -26,6 +26,13 @@ struct HomeWidgetView: View {
     let entry: Entry
     var body: some View {
         let e = entry.e
+        let skin = PiggySkin(rawValue: entry.s.skin).flatMap { Entitlements.allows(skin: $0) ? $0 : nil } ?? .glass
+        if family != .systemSmall && !Entitlements.isPro {
+            VStack(spacing: 4) {
+                Image(systemName: "lock.fill")
+                Text("widget.locked").font(.caption2).multilineTextAlignment(.center)
+            }.foregroundStyle(.secondary)
+        } else {
         switch family {
         case .accessoryRectangular:
             VStack(alignment: .leading) {
@@ -39,14 +46,15 @@ struct HomeWidgetView: View {
             Text(entry.amount)
         case .systemMedium:
             HStack {
-                Image(e.fill(entry.date) > 0.25 ? "pig_half" : "pig_empty").resizable().scaledToFit()
+                Image(skin.image(fill: e.fill(entry.date))).resizable().scaledToFit()
                 info(e)
             }
         default:
             ZStack(alignment: .bottomLeading) {
-                Image(e.fill(entry.date) > 0.25 ? "pig_half" : "pig_empty").resizable().scaledToFit().opacity(0.9)
+                Image(skin.image(fill: e.fill(entry.date))).resizable().scaledToFit().opacity(0.9)
                 info(e)
             }
+        }
         }
     }
     func info(_ e: Earnings) -> some View {

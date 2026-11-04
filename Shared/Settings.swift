@@ -18,6 +18,13 @@ struct WorkSettings: Codable, Equatable {
     var volume: Float = 0.35
     var haptics: Bool = true
     var onboarded: Bool = false
+    var skin: String = PiggySkin.glass.rawValue
+    // Pro: custom extras
+    var overtimeMultiplier: Double = 1.5          // pay rate after end time
+    var countOvertime: Bool = false
+    var overtimeEndMinutes: Int = 21 * 60
+    var yearEndBonusMonths: Double = 0            // e.g. 1 = 13th-month salary, spread over the year
+    var installDate: Date = Calendar.current.startOfDay(for: .now)
 
     static let key = "work.settings.v2"
     static func load() -> WorkSettings {
@@ -42,7 +49,8 @@ struct Earnings {
     var dailyWorkSeconds: Double { Double(max(0, s.endMinutes - s.startMinutes - s.lunchBreakMinutes)) * 60 }
     /// Average work days per month = days/week × 52/12
     var workDaysPerMonth: Double { Double(max(1, s.workDays.count)) * 52.0 / 12.0 }
-    var perSecond: Double { dailyWorkSeconds > 0 ? s.monthlySalary / workDaysPerMonth / dailyWorkSeconds : 0 }
+    var monthlyIncome: Double { s.monthlySalary * (1 + s.yearEndBonusMonths / 12) }
+    var perSecond: Double { dailyWorkSeconds > 0 ? monthlyIncome / workDaysPerMonth / dailyWorkSeconds : 0 }
     var perDay: Double { perSecond * dailyWorkSeconds }
 
     func start(of d: Date) -> Date { cal.startOfDay(for: d).addingTimeInterval(Double(s.startMinutes) * 60) }
@@ -62,8 +70,27 @@ struct Earnings {
         secs -= overlap
         return max(0, secs)
     }
-    func earnedToday(_ now: Date = .now) -> Double { workedSeconds(on: now) * perSecond }
+    func overtimeSeconds(on d: Date) -> Double {
+        guard s.countOvertime, isWorkDay(d) else { return 0 }
+        let a = end(of: d), b = min(cal.startOfDay(for: d).addingTimeInterval(Double(s.overtimeEndMinutes) * 60), d)
+        return max(0, b.timeIntervalSince(a))
+    }
+    func isOvertime(_ now: Date = .now) -> Bool {
+        s.countOvertime && isWorkDay(now) && now >= end(of: now) && now < cal.startOfDay(for: now).addingTimeInterval(Double(s.overtimeEndMinutes) * 60)
+    }
+    func earned(on d: Date) -> Double { workedSeconds(on: d) * perSecond + overtimeSeconds(on: d) * perSecond * s.overtimeMultiplier }
+    func earnedToday(_ now: Date = .now) -> Double { earned(on: now) }
+    /// Sum from `from` (start of day) through `now`, using the current settings. Days before install are excluded.
+    func total(since from: Date, now: Date = .now) -> Double {
+        var d = max(cal.startOfDay(for: from), cal.startOfDay(for: s.installDate)); var sum = 0.0
+        let today = cal.startOfDay(for: now)
+        while d < today { sum += earned(on: d.addingTimeInterval(86_399)); d = cal.date(byAdding: .day, value: 1, to: d)! }
+        return sum + earned(on: now)
+    }
+    func monthTotal(_ now: Date = .now) -> Double { total(since: cal.dateInterval(of: .month, for: now)!.start, now: now) }
+    func yearTotal(_ now: Date = .now) -> Double { total(since: cal.dateInterval(of: .year, for: now)!.start, now: now) }
     func isEarning(_ now: Date = .now) -> Bool {
+        if isOvertime(now) { return true }
         guard isWorkDay(now), now >= start(of: now), now < end(of: now) else { return false }
         let ls = cal.startOfDay(for: now).addingTimeInterval(Double(lunchStartMin) * 60)
         return !(now >= ls && now < ls.addingTimeInterval(Double(s.lunchBreakMinutes) * 60))
@@ -74,4 +101,30 @@ struct Earnings {
 
 extension Double {
     func money(_ sym: String, digits: Int = 2) -> String { sym + String(format: "%.\(digits)f", self) }
+}
+
+enum PiggySkin: String, CaseIterable, Codable, Identifiable {
+    case glass, gold, ceramic, crystal, ingot
+    var id: String { rawValue }
+    var titleKey: String { "skin.\(rawValue)" }
+    func image(fill: Double) -> String {
+        let n = fill > 0.25 ? "half" : "empty"
+        return self == .glass ? "pig_\(n)" : "pig_\(rawValue)_\(n)"
+    }
+    var needsPro: Bool { self == .gold || self == .ceramic || self == .crystal }
+    var needsTip: Bool { self == .ingot }
+}
+
+/// Purchase state mirrored to the App Group so widgets / Live Activity can read it.
+enum Entitlements {
+    static var isPro: Bool {
+        get { AppGroup.defaults.bool(forKey: "ent.pro") }
+        set { AppGroup.defaults.set(newValue, forKey: "ent.pro") }
+    }
+    static var hasTipped: Bool {
+        get { AppGroup.defaults.bool(forKey: "ent.tipped") }
+        set { AppGroup.defaults.set(newValue, forKey: "ent.tipped") }
+    }
+    static func allows(sound: String) -> Bool { isPro || sound == SoundOption.pennySlot.rawValue }
+    static func allows(skin: PiggySkin) -> Bool { skin.needsTip ? hasTipped : (!skin.needsPro || isPro) }
 }

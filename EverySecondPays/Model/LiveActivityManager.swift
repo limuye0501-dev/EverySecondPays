@@ -3,7 +3,7 @@ import Foundation
 
 enum LiveActivityManager {
     static func startOrUpdate(_ e: Earnings) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard Entitlements.isPro, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let now = Date()
         let state = EarningsAttributes.ContentState(baseAmount: e.earnedToday(now), baseDate: now,
                                                     perSecond: e.isEarning(now) ? e.perSecond : 0, endDate: e.end(of: now))

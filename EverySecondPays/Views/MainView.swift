@@ -5,6 +5,8 @@ struct MainView: View {
     @State private var now = Date()
     @State private var tick = 0
     @State private var showSettings = false
+    @State private var showPaywall = false
+    @ObservedObject private var iap = StoreManager.shared
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -15,6 +17,8 @@ struct MainView: View {
                 HStack {
                     Text("app.name").font(.system(.title2, design: .serif).weight(.semibold)).foregroundStyle(Palette.cream)
                     Spacer()
+                    ShareButton()
+                    if !iap.isPro { Button { showPaywall = true } label: { ProBadge() } }
                     Button { showSettings = true } label: { Image(systemName: "gearshape.fill").font(.title2).foregroundStyle(Palette.brass) }
                         .accessibilityLabel(Text("settings.title"))
                 }.padding(.horizontal)
@@ -26,13 +30,17 @@ struct MainView: View {
                     }
                 }
 
-                PiggyView(fill: e.fill(now), dropTrigger: tick).frame(maxWidth: 360)
+                PiggyView(fill: e.fill(now), skin: Entitlements.allows(skin: PiggySkin(rawValue: store.settings.skin) ?? .glass) ? (PiggySkin(rawValue: store.settings.skin) ?? .glass) : .glass, dropTrigger: tick).frame(maxWidth: 360)
 
                 HStack(spacing: 14) {
                     stat("main.perSecond", e.perSecond.money(store.settings.currencySymbol, digits: 4))
                     stat("main.perDay", e.perDay.money(store.settings.currencySymbol))
                 }
-                Text(e.isEarning(now) ? "main.earning" : "main.resting")
+                if iap.isPro { HistoryView() } else {
+                    Button { showPaywall = true } label: { Label("history.locked", systemImage: "lock.fill").font(.caption) }
+                        .foregroundStyle(Palette.cream.opacity(0.7))
+                }
+                Text(e.isOvertime(now) ? "main.overtime" : e.isEarning(now) ? "main.earning" : "main.resting")
                     .font(.footnote).foregroundStyle(Palette.cream.opacity(0.7))
                 Spacer(minLength: 0)
             }.padding(.top)
@@ -40,10 +48,11 @@ struct MainView: View {
         .onReceive(timer) { d in
             now = d
             if store.earnings.isEarning(d) { tick &+= 1 }
-            if Int(d.timeIntervalSince1970) % 60 == 0 { LiveActivityManager.startOrUpdate(store.earnings) }
+            if Int(d.timeIntervalSince1970) % 60 == 0, iap.isPro { LiveActivityManager.startOrUpdate(store.earnings) }
         }
-        .onAppear { LiveActivityManager.startOrUpdate(e) }
+        .onAppear { if iap.isPro { LiveActivityManager.startOrUpdate(e) } }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store) }
+        .sheet(isPresented: $showPaywall) { PaywallView() }
     }
 
     private func stat(_ key: LocalizedStringKey, _ v: String) -> some View {

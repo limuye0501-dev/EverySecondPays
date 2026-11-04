@@ -1,0 +1,23 @@
+{
+  "identifier" : "A1B2C3D4", "nonRenewingSubscriptions" : [], "subscriptionGroups" : [],
+  "products" : [
+    { "displayPrice" : "1.99", "familyShareable" : true, "internalID" : "6830000001", "localizations" : [
+        { "description" : "Unlock all sounds, widgets, skins and stats forever.", "displayName" : "Every Second Pays Pro", "locale" : "en_US" },
+        { "description" : "永久解锁全部音效、小组件、皮肤和统计。", "displayName" : "每秒都在赚 Pro", "locale" : "zh_Hans" } ],
+      "productID" : "com.limuye.everysecondpays.pro", "referenceName" : "Pro Lifetime", "type" : "NonConsumable" },
+    { "displayPrice" : "0.99", "familyShareable" : false, "internalID" : "6830000002", "localizations" : [
+        { "description" : "A small tip. Unlocks the Ingot Piggy skin.", "displayName" : "Copper Coin", "locale" : "en_US" },
+        { "description" : "小小打赏，解锁元宝猪皮肤。", "displayName" : "一枚铜钱", "locale" : "zh_Hans" } ],
+      "productID" : "com.limuye.everysecondpays.tip.small", "referenceName" : "Tip Small", "type" : "Consumable" },
+    { "displayPrice" : "2.99", "familyShareable" : false, "internalID" : "6830000003", "localizations" : [
+        { "description" : "A generous tip. Unlocks the Ingot Piggy skin.", "displayName" : "Silver Ingot", "locale" : "en_US" },
+        { "description" : "慷慨打赏，解锁元宝猪皮肤。", "displayName" : "一锭银子", "locale" : "zh_Hans" } ],
+      "productID" : "com.limuye.everysecondpays.tip.medium", "referenceName" : "Tip Medium", "type" : "Consumable" },
+    { "displayPrice" : "4.99", "familyShareable" : false, "internalID" : "6830000004", "localizations" : [
+        { "description" : "A big gold ingot for the piggy. Unlocks the Ingot Piggy skin.", "displayName" : "Gold Ingot", "locale" : "en_US" },
+        { "description" : "给小猪喂个大元宝，解锁元宝猪皮肤。", "displayName" : "一个大元宝", "locale" : "zh_Hans" } ],
+      "productID" : "com.limuye.everysecondpays.tip.large", "referenceName" : "Tip Large", "type" : "Consumable" }
+  ],
+  "settings" : { "_failTransactionsEnabled" : false, "_locale" : "zh_Hans", "_storefront" : "CHN" },
+  "version" : { "major" : 4, "minor" : 0 }
+}

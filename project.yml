@@ -16,7 +16,12 @@ targets:
   EverySecondPays:
     type: application
     platform: iOS
-    sources: [EverySecondPays, Shared]
+    sources:
+      - path: EverySecondPays
+        excludes: ["Products.storekit"]
+      - Shared
+      - path: EverySecondPays/Products.storekit
+        buildPhase: none
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID)
@@ -27,6 +32,8 @@ targets:
       configs:
         Release: { PROVISIONING_PROFILE_SPECIFIER: $(APP_PROFILE) }
     dependencies: [{ target: EverySecondPaysWidget }]
+    scheme:
+      storeKitConfiguration: EverySecondPays/Products.storekit
   EverySecondPaysWidget:
     type: app-extension
     platform: iOS

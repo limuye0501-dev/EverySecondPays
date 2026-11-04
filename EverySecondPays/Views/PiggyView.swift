@@ -3,13 +3,14 @@ import SwiftUI
 /// Glass piggy bank: baked images cross-faded by fill level, with a falling-coin overlay.
 struct PiggyView: View {
     var fill: Double              // 0…1
+    var skin: PiggySkin = .glass
     var dropTrigger: Int          // increments once per second while earning
     @State private var coins: [FallingCoin] = []
 
     var body: some View {
         ZStack {
-            Image("pig_empty").resizable().scaledToFit()
-            Image("pig_half").resizable().scaledToFit().opacity(min(1, fill * 2))
+            Image(skin.image(fill: 0)).resizable().scaledToFit()
+            Image(skin.image(fill: 1)).resizable().scaledToFit().opacity(min(1, fill * 2))
             // Heaped coins above half — extra stacked coins rendered procedurally
             if fill > 0.5 { CoinHeap(amount: (fill - 0.5) * 2).allowsHitTesting(false) }
             TimelineView(.animation) { tl in
