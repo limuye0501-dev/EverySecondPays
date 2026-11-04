@@ -17,7 +17,7 @@ jobs:
           mkdir -p ~/private_keys; KP=~/private_keys/AuthKey_${KEY_ID}.p8
           echo "$P8_B64" | base64 --decode > $KP; echo "ASC_KEY_PATH=$KP" >> $GITHUB_ENV
       - name: Import distribution certificate
-        env: { P12_B64: "${{ secrets.DIST_CERT_P12 }}", P12_PASS: "${{ secrets.DIST_CERT_PASSWORD }}" }
+        env: { P12_B64: "${{ secrets.DIST_CERT_P12 }}", P12_PASS: "${{ secrets.DIST_CERT_PASSWORD }}", APP_B64: "${{ secrets.APP_PROFILE }}", WIDGET_B64: "${{ secrets.WIDGET_PROFILE }}" }
         run: |
           KC=$RUNNER_TEMP/b.keychain-db; KCP=$(openssl rand -hex 12)
           echo "$P12_B64" | base64 --decode > $RUNNER_TEMP/d.p12
@@ -25,14 +25,17 @@ jobs:
           security import $RUNNER_TEMP/d.p12 -P "$P12_PASS" -A -t cert -f pkcs12 -k $KC
           security set-key-partition-list -S apple-tool:,apple: -k "$KCP" $KC >/dev/null
           security list-keychains -d user -s $KC $(security list-keychains -d user | tr -d '"')
-      - name: Archive (automatic signing via API key)
+          D="$HOME/Library/MobileDevice/Provisioning Profiles"; mkdir -p "$D"
+          for v in APP WIDGET; do eval "echo \$${v}_B64" | base64 --decode > $RUNNER_TEMP/$v.mobileprovision
+            U=$(security cms -D -i $RUNNER_TEMP/$v.mobileprovision | plutil -extract UUID raw -); cp $RUNNER_TEMP/$v.mobileprovision "$D/$U.mobileprovision"; done
+      - name: Archive (manual signing)
         env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER_ID: "${{ secrets.ASC_ISSUER_ID }}" }
         run: |
           set -o pipefail
           xcodebuild archive -project EverySecondPays.xcodeproj -scheme EverySecondPays -configuration Release \
             -destination 'generic/platform=iOS' -archivePath build/App.xcarchive \
-            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
-            DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
+            APP_PROFILE="EverySecondPays AppStore CI" WIDGET_PROFILE="EverySecondPays Widget AppStore CI" CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)|rovision" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log
       - name: Export & upload to TestFlight
@@ -41,7 +44,7 @@ jobs:
           cat > EO.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict><key>method</key><string>app-store-connect</string><key>destination</key><string>upload</string>
-          <key>teamID</key><string>${TEAM_ID}</string><key>signingStyle</key><string>automatic</string>
+          <key>teamID</key><string>${TEAM_ID}</string><key>signingStyle</key><string>manual</string><key>signingCertificate</key><string>Apple Distribution</string><key>provisioningProfiles</key><dict><key>com.limuye.everysecondpays</key><string>EverySecondPays AppStore CI</string><key>com.limuye.everysecondpays.widget</key><string>EverySecondPays Widget AppStore CI</string></dict>
           <key>uploadSymbols</key><true/><key>manageAppVersionAndBuildNumber</key><false/></dict></plist>
           PLIST
           set -o pipefail
