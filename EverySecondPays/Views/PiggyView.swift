@@ -11,6 +11,7 @@ struct PiggyView: View {
     @StateObject private var bridge = PiggyBridge()
     @State private var impacts = 0
     @State private var lastFullness = 0.0
+    @State private var lastCoin = Date.distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
@@ -21,17 +22,6 @@ struct PiggyView: View {
             .resizable()
             .scaledToFit()
             .overlay {
-                if !reduceMotion {
-                    TransparentCoinView(
-                        scene: bridge.scene,
-                        skin: skin,
-                        running: bridge.simulating && scenePhase == .active
-                    )
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                }
-            }
-            .overlay {
                 if !reduceMotion { SpecularHighlight(skin: skin, fill: 1) }
             }
             .keyframeAnimator(initialValue: 1.0, trigger: impacts) { view, scale in
@@ -40,6 +30,24 @@ struct PiggyView: View {
                 KeyframeTrack {
                     CubicKeyframe(reduceMotion ? 1.0 : 1 - 0.012 - 0.02 * lastFullness, duration: 0.06)
                     SpringKeyframe(1.0, duration: 0.35, spring: .bouncy)
+                }
+            }
+            .overlay(alignment: .top) {
+                // Taller than the photo and shifted up, so the coin can start above the piggy
+                // without pushing the rest of the screen down. Not inside the spring scale.
+                if !reduceMotion {
+                    GeometryReader { g in
+                        let tall = g.size.height * (1 + PiggyBankScene.sky)
+                        TransparentCoinView(
+                            scene: bridge.scene,
+                            skin: skin,
+                            running: bridge.simulating && scenePhase == .active
+                        )
+                        .frame(width: g.size.width, height: tall)
+                        .offset(y: -g.size.height * PiggyBankScene.sky)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
                 }
             }
             .accessibilityElement()
@@ -61,6 +69,10 @@ struct PiggyView: View {
             }
             .onChange(of: dropTrigger) { _, _ in
                 guard scenePhase == .active else { return }
+                let now = Date()
+                // One coin animation per second. Extra earnings ticks do not add coins.
+                guard now.timeIntervalSince(lastCoin) >= PiggyBankScene.dropInterval else { return }
+                lastCoin = now
                 bridge.fill = fill
                 if reduceMotion {
                     // No travel and no bounce. One clink at the moment the coin would have landed.

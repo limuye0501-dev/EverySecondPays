@@ -29,7 +29,7 @@ extension PiggySkin {
 
 /// Owns the SpriteKit world and turns contact callbacks into sound, haptics, and a spring token.
 final class PiggyBridge: ObservableObject {
-    let scene = PiggyBankScene(size: CGSize(width: 400, height: 400))
+    let scene = PiggyBankScene(size: CGSize(width: 400, height: 400 * (1 + PiggyBankScene.sky)))
     /// Today's earnings progress (0…1). Colors the clink. It does not move the pile.
     var fill: Double = 0.5
     /// Bumps once per coin when that coin's first solid impact happens, so the glass can spring.
@@ -99,14 +99,21 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         static let pile: UInt32 = 1 << 2
     }
 
-    /// Glass interior in photo space: x right, y down, both 0…1 across the square image.
-    /// The neck is the slot chute. Checked so the static coins sit inside this outline.
+    /// Open air above the photo, as a fraction of the photo height. The coin is released in this band.
+    static let sky: CGFloat = 0.36
+    /// Photo-space y, downward. Negative is above the photo, so the drop starts higher on screen.
+    static let releaseY: CGFloat = -0.28
+    /// At most one visual coin this often. Earnings may still tick every second.
+    static let dropInterval: TimeInterval = 0.90
+
+    /// Glass interior in photo space: x right, y down. y < 0 is the chute above the piggy.
+    /// The neck is open at the top so a coin can fall in from above the photo.
     private static let outline: [(CGFloat, CGFloat)] = [
-        (0.420, 0.000), (0.420, 0.250), (0.430, 0.302), (0.420, 0.360),
+        (0.400, -0.34), (0.400, 0.250), (0.420, 0.302), (0.420, 0.360),
         (0.378, 0.440), (0.342, 0.520), (0.338, 0.590), (0.365, 0.655),
         (0.450, 0.708), (0.560, 0.716), (0.655, 0.685), (0.712, 0.615),
         (0.738, 0.525), (0.728, 0.440), (0.685, 0.375), (0.625, 0.338),
-        (0.600, 0.305), (0.610, 0.250), (0.610, 0.000),
+        (0.600, 0.305), (0.620, 0.250), (0.620, -0.34),
     ]
 
     /// Fixed half-full pile. (x, y down, radius), all in photo space. These bodies never move.
@@ -137,6 +144,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     private var builtFor: CGSize = .zero
     private var glassReady = false
     private var pending = 0
+    private var lastSpawn = 0.0
     private var wasEmpty = true
     private var lastStep = 0.0
     private var settleQueue: [CoinNode] = []
@@ -220,9 +228,10 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         if photo.texture == nil && !photo.isHidden {
             installPhotoTexture()
         }
-        photo.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        photo.position = CGPoint(x: size.width / 2, y: size.height / 2)
-        photo.size = size
+        let h = photoHeight
+        photo.anchorPoint = CGPoint(x: 0.5, y: 0)
+        photo.position = CGPoint(x: size.width / 2, y: 0)
+        photo.size = CGSize(width: size.width, height: h)
         photo.zPosition = -20
     }
 
@@ -239,13 +248,17 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    /// Drop one coin through the slot. Extra calls that arrive before layout are queued.
+    /// Drop one coin from above the piggy. Extra calls inside `dropInterval` are ignored,
+    /// so a fast earnings tick cannot turn into a burst of coins.
     func drop() {
-        // Keep the scene drawing. Pausing the SKView is what showed a gray square.
+        let now = CACurrentMediaTime()
+        guard now - lastSpawn >= Self.dropInterval else { return }
         isPaused = false
         physicsWorld.speed = 1
         rebuildIfNeeded()
-        guard glassReady else { pending += 1; return }
+        guard glassReady else { pending = 1; return }
+        guard CACurrentMediaTime() - lastSpawn >= Self.dropInterval else { return }
+        lastSpawn = CACurrentMediaTime()
         spawn()
     }
 
@@ -280,9 +293,9 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
             let v = speed(of: coin)
             let spin = abs(coin.physicsBody?.angularVelocity ?? 0)
             if v < restV && spin < 1.6 { coin.slow += dt } else { coin.slow = 0 }
-            let yDown = 1 - coin.position.y / max(size.height, 1)
+            let yDown = 1 - coin.position.y / max(photoHeight, 1)
             if yDown < 0.36, coin.slow > 0.40, let body = coin.physicsBody {
-                body.applyImpulse(CGVector(dx: 0, dy: -body.mass * size.height * 0.85))
+                body.applyImpulse(CGVector(dx: 0, dy: -body.mass * photoHeight * 0.55))
                 coin.slow = 0
             }
             let age = now - coin.born
@@ -319,8 +332,9 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         }
         children.filter { $0.name == "glass" || $0.name == "pile" }.forEach { $0.removeFromParent() }
         builtFor = size
-        let drop = 0.42 * size.height
-        physicsWorld.gravity = CGVector(dx: 0, dy: -(2 * drop / (0.50 * 0.50)))
+        // Readable fall from above the piggy into the slot, then the same gravity continues inside.
+        let fall = (0.32 - Self.releaseY) * photoHeight
+        physicsWorld.gravity = CGVector(dx: 0, dy: -(2 * fall / (0.72 * 0.72)))
         let path = outlinePath()
         let glass = SKNode()
         glass.name = "glass"
@@ -357,9 +371,12 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         glassReady = true
         layoutPhoto()
         if pending > 0 {
-            let n = min(pending, 2)
             pending = 0
-            for _ in 0..<n { spawn() }
+            let now = CACurrentMediaTime()
+            if now - lastSpawn >= Self.dropInterval {
+                lastSpawn = now
+                spawn()
+            }
         }
     }
 
@@ -376,7 +393,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         coin.colorBlendFactor = 0
         coin.zPosition = 2
         let nx = CGFloat.random(in: 0.500...0.520)
-        coin.position = point(nx, 0.150)
+        coin.position = point(nx, Self.releaseY)
         // Small tilt only. A full spin would swing the baked highlight away from the photo's light.
         coin.zRotation = CGFloat.random(in: -0.22...0.22)
         let body = SKPhysicsBody(texture: texture, alphaThreshold: 0.55, size: coinSize)
@@ -395,8 +412,8 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         wasEmpty = false
         crop.addChild(coin)
         body.velocity = CGVector(
-            dx: CGFloat.random(in: -0.05...0.05) * size.width,
-            dy: CGFloat.random(in: -0.22 ... -0.08) * size.height)
+            dx: CGFloat.random(in: -0.015...0.015) * size.width,
+            dy: CGFloat.random(in: -0.08 ... -0.02) * photoHeight)
         body.angularVelocity = CGFloat.random(in: -1.4...1.4)
     }
 
@@ -449,15 +466,19 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         return hypot(v.dx, v.dy)
     }
 
-    /// Speed a coin reaches falling from the slot onto the pile. Impact strength is relative to this.
+    /// Speed at the pile after the drop from above the bank. Impact strength is relative to this.
     private var impactSpeed: CGFloat {
-        let drop = 0.42 * size.height
+        let fall = (0.55 - Self.releaseY) * photoHeight
         let g = abs(physicsWorld.gravity.dy)
-        return sqrt(max(1, 2 * g * drop))
+        return sqrt(max(1, 2 * g * fall))
     }
 
+    /// Height of the piggy photo inside this scene. The rest above it is open air.
+    private var photoHeight: CGFloat { size.height / (1 + Self.sky) }
+
+    /// Photo space: x right, y down. y < 0 is above the photo. Scene y is up, with the photo on the bottom.
     private func point(_ nx: CGFloat, _ nyDown: CGFloat) -> CGPoint {
-        CGPoint(x: nx * size.width, y: (1 - nyDown) * size.height)
+        CGPoint(x: nx * size.width, y: photoHeight * (1 - nyDown))
     }
 
     private func outlinePath() -> CGPath {
@@ -504,6 +525,13 @@ struct TransparentCoinView: UIViewRepresentable {
         view.isPaused = false
         scene.backgroundColor = .clear
         scene.isPaused = false
+        // Let the coin draw in the band above the piggy photo. SwiftUI hosts often clip.
+        var host: UIView? = view
+        for _ in 0..<5 {
+            host?.clipsToBounds = false
+            host?.layer.masksToBounds = false
+            host = host?.superview
+        }
     }
 
     private func applyRunning(_ view: SKView) {
