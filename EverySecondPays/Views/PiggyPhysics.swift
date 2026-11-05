@@ -23,14 +23,8 @@ enum PiggyHit {
 }
 
 extension PiggySkin {
-    /// Face tint so a dropped coin matches the coins baked into that skin's photo.
-    var coinTint: (UIColor, CGFloat) {
-        switch self {
-        case .ceramic: return (UIColor(red: 0.78, green: 0.80, blue: 0.84, alpha: 1), 0.86)
-        case .ingot: return (UIColor(red: 0.86, green: 0.50, blue: 0.24, alpha: 1), 0.58)
-        default: return (.white, 0)
-        }
-    }
+    /// Sprite cropped from this skin's half-full photo, so a falling coin matches the coins already inside.
+    var coinImageName: String { "coin_\(rawValue)" }
 }
 
 /// Owns the SpriteKit world and turns contact callbacks into sound, haptics, and a spring token.
@@ -82,8 +76,8 @@ private final class CoinNode: SKSpriteNode {
     var lastHaptic = 0.0
     var lastSound = 0.0
 
-    init(diameter: CGFloat) {
-        super.init(texture: CoinArt.texture, color: .white, size: CGSize(width: diameter, height: diameter))
+    init(texture: SKTexture, size: CGSize) {
+        super.init(texture: texture, color: .white, size: size)
     }
 
     required init?(coder: NSCoder) { fatalError("CoinNode is built in code") }
@@ -108,11 +102,11 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     /// Glass interior in photo space: x right, y down, both 0…1 across the square image.
     /// The neck is the slot chute. Checked so the static coins sit inside this outline.
     private static let outline: [(CGFloat, CGFloat)] = [
-        (0.448, 0.000), (0.448, 0.250), (0.450, 0.302), (0.420, 0.360),
+        (0.420, 0.000), (0.420, 0.250), (0.430, 0.302), (0.420, 0.360),
         (0.378, 0.440), (0.342, 0.520), (0.338, 0.590), (0.365, 0.655),
         (0.450, 0.708), (0.560, 0.716), (0.655, 0.685), (0.712, 0.615),
-        (0.738, 0.525), (0.728, 0.440), (0.685, 0.375), (0.625, 0.338),
-        (0.572, 0.305), (0.572, 0.250), (0.572, 0.000),
+        (0.738, 0.525), (0.728, 0.440), (0.685, 0.375),         (0.625, 0.338),
+        (0.600, 0.305), (0.610, 0.250), (0.610, 0.000),
     ]
 
     /// Fixed half-full pile. (x, y down, radius), all in photo space. These bodies never move.
@@ -146,8 +140,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     private var wasEmpty = true
     private var lastStep = 0.0
     private var settleQueue: [CoinNode] = []
-    private var coinColor: UIColor = .white
-    private var coinBlend: CGFloat = 0
+    private var bankSkin: PiggySkin = .glass
     /// Set after `init` finishes so a `didChangeSize` from `super.init` cannot build early.
     private var acceptsLayout = false
 
@@ -191,12 +184,14 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     func apply(skin: PiggySkin) {
-        let tint = skin.coinTint
-        coinColor = tint.0
-        coinBlend = tint.1
-        for coin in crop.children.compactMap({ $0 as? CoinNode }) {
-            coin.color = coinColor
-            coin.colorBlendFactor = coinBlend
+        let changed = bankSkin != skin
+        bankSkin = skin
+        if changed {
+            let texture = CoinArt.texture(for: skin)
+            for coin in crop.children.compactMap({ $0 as? CoinNode }) {
+                coin.texture = texture
+                coin.colorBlendFactor = 0
+            }
         }
         let name = skin.image(fill: 1)
         if name != photoName || photo.texture == nil {
@@ -374,22 +369,23 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
             oldest.removeAllActions()
             oldest.removeFromParent()
         }
-        let r = 0.036 * size.width
-        let coin = CoinNode(diameter: r * 2)
+        let texture = CoinArt.texture(for: bankSkin)
+        let coinSize = CGSize(width: CoinArt.widthNorm * size.width, height: CoinArt.heightNorm * size.height)
+        let coin = CoinNode(texture: texture, size: coinSize)
         coin.name = "coin"
-        coin.color = coinColor
-        coin.colorBlendFactor = coinBlend
+        coin.colorBlendFactor = 0
         coin.zPosition = 2
         let nx = CGFloat.random(in: 0.500...0.520)
         coin.position = point(nx, 0.150)
-        coin.zRotation = CGFloat.random(in: 0 ... .pi * 2)
-        let body = SKPhysicsBody(circleOfRadius: r)
+        // Small tilt only. A full spin would swing the baked highlight away from the photo's light.
+        coin.zRotation = CGFloat.random(in: -0.22...0.22)
+        let body = SKPhysicsBody(texture: texture, alphaThreshold: 0.55, size: coinSize)
         body.isDynamic = true
         body.allowsRotation = true
         body.restitution = 0.46
         body.friction = 0.48
         body.linearDamping = 0.20
-        body.angularDamping = 0.32
+        body.angularDamping = 0.55
         body.usesPreciseCollisionDetection = true
         body.categoryBitMask = Mask.coin
         body.collisionBitMask = Mask.glass | Mask.pile | Mask.coin
@@ -401,7 +397,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         body.velocity = CGVector(
             dx: CGFloat.random(in: -0.05...0.05) * size.width,
             dy: CGFloat.random(in: -0.22 ... -0.08) * size.height)
-        body.angularVelocity = CGFloat.random(in: -5.5...5.5)
+        body.angularVelocity = CGFloat.random(in: -1.4...1.4)
     }
 
     /// Fade the sprite in place and drop its body so later coins still land on the fixed pile.
@@ -516,43 +512,29 @@ struct TransparentCoinView: UIViewRepresentable {
     }
 }
 
-private enum CoinArt {
-    static let texture: SKTexture = {
-        let s: CGFloat = 128
+enum CoinArt {
+    /// Bounding box of the cropped stack-top coin inside the square piggy photo.
+    static let widthNorm: CGFloat = 0.108
+    static let heightNorm: CGFloat = 0.046
+
+    static func texture(for skin: PiggySkin) -> SKTexture {
+        if let image = UIImage(named: skin.coinImageName) {
+            let texture = SKTexture(image: image)
+            texture.filteringMode = .linear
+            return texture
+        }
+        return fallback
+    }
+
+    /// Used only if the cropped asset is missing. Same footprint, flat gold, so physics still has a texture.
+    private static let fallback: SKTexture = {
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
         format.scale = 1
-        let image = UIGraphicsImageRenderer(size: CGSize(width: s, height: s), format: format).image { ctx in
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 110, height: 47), format: format).image { ctx in
             let c = ctx.cgContext
-            c.addEllipse(in: CGRect(x: 1, y: 1, width: s - 2, height: s - 2))
-            c.clip()
-            let colors = [
-                UIColor(red: 1.00, green: 0.94, blue: 0.74, alpha: 1).cgColor,
-                UIColor(red: 0.91, green: 0.77, blue: 0.42, alpha: 1).cgColor,
-                UIColor(red: 0.54, green: 0.39, blue: 0.13, alpha: 1).cgColor,
-            ] as CFArray
-            let locations: [CGFloat] = [0, 0.55, 1]
-            let grad = locations.withUnsafeBufferPointer { buffer in
-                CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: buffer.baseAddress)
-            }
-            if let grad {
-                c.drawRadialGradient(
-                    grad,
-                    startCenter: CGPoint(x: s * 0.36, y: s * 0.34), startRadius: 2,
-                    endCenter: CGPoint(x: s * 0.50, y: s * 0.50), endRadius: s * 0.58,
-                    options: [])
-            }
-            c.setStrokeColor(UIColor(red: 0.45, green: 0.32, blue: 0.09, alpha: 0.85).cgColor)
-            c.setLineWidth(3)
-            c.move(to: CGPoint(x: s * 0.50, y: s * 0.50))
-            c.addLine(to: CGPoint(x: s * 0.50, y: s * 0.27))
-            c.strokePath()
-            c.setStrokeColor(UIColor(red: 0.40, green: 0.28, blue: 0.08, alpha: 0.95).cgColor)
-            c.setLineWidth(7)
-            c.strokeEllipse(in: CGRect(x: 6, y: 6, width: s - 12, height: s - 12))
-            c.setStrokeColor(UIColor(red: 1, green: 0.95, blue: 0.80, alpha: 0.75).cgColor)
-            c.setLineWidth(2)
-            c.strokeEllipse(in: CGRect(x: 16, y: 16, width: s - 32, height: s - 32))
+            c.setFillColor(UIColor(red: 0.85, green: 0.67, blue: 0.28, alpha: 1).cgColor)
+            c.fillEllipse(in: CGRect(x: 2, y: 4, width: 106, height: 38))
         }
         let texture = SKTexture(image: image)
         texture.filteringMode = .linear
