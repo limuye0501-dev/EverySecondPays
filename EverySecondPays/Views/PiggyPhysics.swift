@@ -1,6 +1,7 @@
 import Combine
 import QuartzCore
 import SpriteKit
+import SwiftUI
 import UIKit
 
 /// One real collision. `land` is the coin's first solid hit (glass spring).
@@ -40,7 +41,7 @@ final class PiggyBridge: ObservableObject {
     /// Bumps once per coin when that coin's first solid impact happens, so the glass can spring.
     @Published private(set) var landToken = 0
     private(set) var landFill = 0.5
-    /// While true, SwiftUI unpauses the SpriteView. Idle banks do not burn frames.
+    /// While true, coins simulate. The view itself stays unpaused so it cannot flash gray.
     @Published var simulating = false
 
     init() {
@@ -134,6 +135,11 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     ]
 
     private let crop = SKCropNode()
+    /// Half-full photo drawn in the scene, behind the coins.
+    /// An opaque SKView paints gray behind scene content; this sprite covers that gray.
+    /// If the texture is missing, the sprite draws nothing and the SwiftUI image behind the view shows through.
+    private let photo = SKSpriteNode()
+    private var photoName = "pig_half"
     private var builtFor: CGSize = .zero
     private var glassReady = false
     private var pending = 0
@@ -154,7 +160,12 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         scaleMode = .aspectFit
         physicsWorld.contactDelegate = self
         physicsWorld.gravity = .zero
+        crop.zPosition = 1
         addChild(crop)
+        photo.name = "photo"
+        photo.zPosition = -20
+        photo.colorBlendFactor = 0
+        addChild(photo)
         acceptsLayout = true
         rebuildIfNeeded()
     }
@@ -162,9 +173,13 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     required init?(coder: NSCoder) { fatalError("PiggyBankScene is built in code") }
 
     override func didMove(to view: SKView) {
+        // A paused or opaque SKView paints its default gray and hides the photo behind it.
         view.allowsTransparency = true
+        view.isOpaque = false
         view.backgroundColor = .clear
-        view.preferredFramesPerSecond = 120
+        view.layer.isOpaque = false
+        view.layer.backgroundColor = nil
+        backgroundColor = .clear
         isPaused = false
         rebuildIfNeeded()
     }
@@ -183,6 +198,37 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
             coin.color = coinColor
             coin.colorBlendFactor = coinBlend
         }
+        let name = skin.image(fill: 1)
+        if name != photoName || photo.texture == nil {
+            photoName = name
+            installPhotoTexture()
+        }
+        layoutPhoto()
+    }
+
+    /// A missing texture must not paint a blank rectangle over the SwiftUI photo.
+    /// `UIImage(named:)` is the same catalog lookup the SwiftUI image uses, and it loads immediately.
+    private func installPhotoTexture() {
+        guard let image = UIImage(named: photoName), image.size.width > 1 else {
+            photo.texture = nil
+            photo.isHidden = true
+            return
+        }
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .linear
+        photo.isHidden = false
+        photo.texture = texture
+    }
+
+    private func layoutPhoto() {
+        guard size.width > 20, size.height > 20 else { return }
+        if photo.texture == nil && !photo.isHidden {
+            installPhotoTexture()
+        }
+        photo.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        photo.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        photo.size = size
+        photo.zPosition = -20
     }
 
     func clearCoins() {
@@ -200,6 +246,9 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
 
     /// Drop one coin through the slot. Extra calls that arrive before layout are queued.
     func drop() {
+        // Keep the scene drawing. Pausing the SKView is what showed a gray square.
+        isPaused = false
+        physicsWorld.speed = 1
         rebuildIfNeeded()
         guard glassReady else { pending += 1; return }
         spawn()
@@ -311,6 +360,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
             addChild(node)
         }
         glassReady = true
+        layoutPhoto()
         if pending > 0 {
             let n = min(pending, 2)
             pending = 0
@@ -419,6 +469,50 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         path.addLines(between: Self.outline.map { point($0.0, $0.1) })
         path.closeSubpath()
         return path
+    }
+}
+
+/// Coin layer over the SwiftUI piggy photo.
+/// SpriteView's paused SKView is opaque gray and covered build 20. This view stays clear,
+/// and it is never paused, so the photo underneath remains visible.
+struct TransparentCoinView: UIViewRepresentable {
+    var scene: PiggyBankScene
+    var skin: PiggySkin
+    var running: Bool
+
+    func makeUIView(context: Context) -> SKView {
+        let view = SKView()
+        prepare(view)
+        scene.apply(skin: skin)
+        view.presentScene(scene)
+        applyRunning(view)
+        return view
+    }
+
+    func updateUIView(_ view: SKView, context: Context) {
+        prepare(view)
+        if view.scene !== scene {
+            view.presentScene(scene)
+        }
+        scene.apply(skin: skin)
+        applyRunning(view)
+    }
+
+    private func prepare(_ view: SKView) {
+        view.allowsTransparency = true
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.layer.isOpaque = false
+        view.layer.backgroundColor = nil
+        view.isUserInteractionEnabled = false
+        view.isPaused = false
+        scene.backgroundColor = .clear
+        scene.isPaused = false
+    }
+
+    private func applyRunning(_ view: SKView) {
+        scene.physicsWorld.speed = running ? 1 : 0
+        view.preferredFramesPerSecond = running ? 120 : 15
     }
 }
 

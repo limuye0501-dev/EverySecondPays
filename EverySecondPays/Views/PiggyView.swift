@@ -1,4 +1,3 @@
-import SpriteKit
 import SwiftUI
 
 /// Glass piggy bank. The picture is always the half-full photo.
@@ -16,28 +15,17 @@ struct PiggyView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                Image(skin.image(fill: 1))
-                    .resizable()
-                    .scaledToFit()
-                    .keyframeAnimator(initialValue: 1.0, trigger: impacts) { view, scale in
-                        view.scaleEffect(x: 2 - scale, y: scale, anchor: .bottom)
-                    } keyframes: { _ in
-                        KeyframeTrack {
-                            CubicKeyframe(reduceMotion ? 1.0 : 1 - 0.012 - 0.02 * lastFullness, duration: 0.06)
-                            SpringKeyframe(1.0, duration: 0.35, spring: .bouncy)
-                        }
-                    }
-            }
+        // The photo is the bottom layer and does not depend on SpriteKit.
+        // The coin view is transparent, so a paused or failed scene cannot cover the piggy with gray.
+        Image(skin.image(fill: 1))
+            .resizable()
+            .scaledToFit()
             .overlay {
                 if !reduceMotion {
-                    SpriteView(
+                    TransparentCoinView(
                         scene: bridge.scene,
-                        isPaused: !bridge.simulating || scenePhase != .active,
-                        preferredFramesPerSecond: 120,
-                        options: [.allowsTransparency]
+                        skin: skin,
+                        running: bridge.simulating && scenePhase == .active
                     )
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -45,6 +33,14 @@ struct PiggyView: View {
             }
             .overlay {
                 if !reduceMotion { SpecularHighlight(skin: skin, fill: 1) }
+            }
+            .keyframeAnimator(initialValue: 1.0, trigger: impacts) { view, scale in
+                view.scaleEffect(x: 2 - scale, y: scale, anchor: .bottom)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(reduceMotion ? 1.0 : 1 - 0.012 - 0.02 * lastFullness, duration: 0.06)
+                    SpringKeyframe(1.0, duration: 0.35, spring: .bouncy)
+                }
             }
             .accessibilityElement()
             .accessibilityLabel(Text("a11y.piggy \(Int(fill * 100))"))
