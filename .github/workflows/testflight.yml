@@ -1,4 +1,6 @@
 name: TestFlight
+# Uploads a build to App Store Connect. Internal group "Me" receives it when that
+# group has automatic distribution turned on (App Store Connect → TestFlight → Me).
 on: { workflow_dispatch: {}, push: { tags: ['v*'] } }
 jobs:
   testflight:
@@ -35,7 +37,7 @@ jobs:
           xcodebuild archive -project EverySecondPays.xcodeproj -scheme EverySecondPays -configuration Release \
             -destination 'generic/platform=iOS' -archivePath build/App.xcarchive \
             DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
-            APP_PROFILE="EverySecondPays AppStore CI" WIDGET_PROFILE="EverySecondPays Widget AppStore CI" CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            APP_PROFILE="EverySecondPays AppStore CI" WIDGET_PROFILE="EverySecondPays Widget AppStore CI" CURRENT_PROJECT_VERSION=$(( ${{ github.run_number }} + 9 )) \
             2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)|rovision" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log
       - name: Export & upload to TestFlight

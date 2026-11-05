@@ -2,8 +2,8 @@ import AVFoundation
 import CoreHaptics
 import UIKit
 
-/// Coin-landing feedback: the slot sound and a Core Haptics (AHAP) transient fire in the same call,
-/// at the frame the coin actually lands. Audio uses the .ambient category, so it mixes with other
+/// Coin-impact feedback. Sound and a Core Haptics (AHAP) transient fire in the same call,
+/// at a real collision — not on a timer. Audio uses the .ambient category, so it mixes with other
 /// audio and is silenced by the Ring/Silent switch; haptics follow the in-app toggle and system settings.
 final class CoinSound {
     static let shared = CoinSound()
@@ -38,9 +38,13 @@ final class CoinSound {
     }
 
     /// AHAP pattern: a crisp "clink" transient followed by a short soft settle.
-    /// `fullness` 0…1 makes the clink heavier/duller as the piggy fills up.
-    static func ahap(fullness f: Double) -> [CHHapticPattern.Key: Any] {
-        let intensity = 0.35 + 0.55 * f, sharp = 0.85 - 0.5 * f
+    /// `fullness` 0…1 makes the clink heavier as the workday progresses.
+    /// `strength` 0…1 is the collision speed relative to a full drop. 1 keeps the original curve.
+    static func ahap(fullness f: Double, strength: Double = 1) -> [CHHapticPattern.Key: Any] {
+        let k = min(1, max(0.15, strength))
+        let intensity = min(1, (0.35 + 0.55 * f) * (0.45 + 0.55 * k))
+        let sharp = min(1, max(0, (0.85 - 0.5 * f) * (0.65 + 0.35 * k)))
+        let duration = (0.08 + 0.06 * f) * (0.70 + 0.30 * k)
         return [
             .version: 1.0,
             .pattern: [
@@ -53,7 +57,7 @@ final class CoinSound {
                 [CHHapticPattern.Key.event: [
                     CHHapticPattern.Key.eventType: CHHapticEvent.EventType.hapticContinuous.rawValue,
                     CHHapticPattern.Key.time: 0.02,
-                    CHHapticPattern.Key.eventDuration: 0.08 + 0.06 * f,
+                    CHHapticPattern.Key.eventDuration: duration,
                     CHHapticPattern.Key.eventParameters: [
                         [CHHapticPattern.Key.parameterID: CHHapticEvent.ParameterID.hapticIntensity.rawValue, CHHapticPattern.Key.parameterValue: intensity * 0.35],
                         [CHHapticPattern.Key.parameterID: CHHapticEvent.ParameterID.hapticSharpness.rawValue, CHHapticPattern.Key.parameterValue: 0.2]]]],
@@ -61,24 +65,38 @@ final class CoinSound {
         ]
     }
 
-    /// Call exactly when the coin hits the slot.
-    func coinLanded(fullness: Double = 0) {
+    /// Call once per dropped coin, before its impacts. `playEveryN` still means every Nth coin.
+    /// Returns whether this coin may play the slot sound.
+    func armCoin() -> Bool {
         counter += 1
-        let f = min(1, max(0, fullness))
-        let playSound = !s.muted && counter % max(1, s.playEveryN) == 0 && !players.isEmpty
-        if s.haptics { playHaptic(f) }
-        guard playSound else { return }
-        let p = players[idx % players.count]; idx += 1
-        p.volume = s.volume * Float(0.8 + 0.2 * f)
-        p.currentTime = 0; p.play()
+        return !s.muted && !players.isEmpty && counter % max(1, s.playEveryN) == 0
     }
 
-    private func playHaptic(_ f: Double) {
-        guard let engine, let pattern = try? CHHapticPattern(dictionary: Self.ahap(fullness: f)) else {
-            fallback.impactOccurred(intensity: 0.35 + 0.55 * f); return
+    /// Reduce Motion path: no flight, one impact at full strength.
+    func coinLanded(fullness: Double = 0) {
+        impact(strength: 1, fullness: fullness, playSound: armCoin())
+    }
+
+    /// Call from the physics contact callback, on the frame of a real hit.
+    func impact(strength: Double, fullness: Double, playSound: Bool) {
+        let f = min(1, max(0, fullness))
+        let k = min(1, max(0, strength))
+        if s.haptics { playHaptic(f, strength: k) }
+        guard playSound, !s.muted, !players.isEmpty else { return }
+        let p = players[idx % players.count]; idx += 1
+        p.volume = s.volume * Float(0.72 + 0.28 * k) * Float(0.85 + 0.15 * f)
+        p.currentTime = 0
+        p.play()
+    }
+
+    private func playHaptic(_ f: Double, strength: Double = 1) {
+        let k = min(1, max(0, strength))
+        let fallbackIntensity = min(1, (0.35 + 0.55 * f) * (0.45 + 0.55 * max(0.15, k)))
+        guard let engine, let pattern = try? CHHapticPattern(dictionary: Self.ahap(fullness: f, strength: k)) else {
+            fallback.impactOccurred(intensity: fallbackIntensity); return
         }
         do { try engine.start(); try engine.makePlayer(with: pattern).start(atTime: CHHapticTimeImmediate) }
-        catch { fallback.impactOccurred(intensity: 0.35 + 0.55 * f) }
+        catch { fallback.impactOccurred(intensity: fallbackIntensity) }
     }
 
     /// Bigger "piggy is full" celebration.
