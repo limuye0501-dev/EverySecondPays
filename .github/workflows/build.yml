@@ -1,5 +1,10 @@
 name: iOS Simulator Build
-on: { push: { branches: [main] }, workflow_dispatch: {} }
+on:
+  push:
+    branches: [main, v1.1]
+  pull_request:
+    branches: [main, v1.1]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: macos-15-intel

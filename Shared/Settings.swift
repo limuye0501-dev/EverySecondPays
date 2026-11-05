@@ -95,7 +95,8 @@ struct Earnings {
         let ls = cal.startOfDay(for: now).addingTimeInterval(Double(lunchStartMin) * 60)
         return !(now >= ls && now < ls.addingTimeInterval(Double(s.lunchBreakMinutes) * 60))
     }
-    /// Fill 0…1 of the piggy bank (today's progress).
+    /// Today's work progress, 0…1. This does not change the piggy picture.
+    /// The bank is always drawn half full; this value still drives the lock-screen gauge and the "day complete" paywall.
     func fill(_ now: Date = .now) -> Double { dailyWorkSeconds > 0 ? min(1, workedSeconds(on: now) / dailyWorkSeconds) : 0 }
 }
 
@@ -107,9 +108,11 @@ enum PiggySkin: String, CaseIterable, Codable, Identifiable {
     case glass, gold, ceramic, crystal, ingot
     var id: String { rawValue }
     var titleKey: String { "skin.\(rawValue)" }
+    /// Always the half-full photo. `fill` is accepted so existing call sites can pass
+    /// today's progress, but the pile in the picture does not grow.
     func image(fill: Double) -> String {
-        let n = fill > 0.25 ? "half" : "empty"
-        return self == .glass ? "pig_\(n)" : "pig_\(rawValue)_\(n)"
+        _ = fill
+        return self == .glass ? "pig_half" : "pig_\(rawValue)_half"
     }
     var needsPro: Bool { self == .gold || self == .ceramic || self == .crystal }
     var needsTip: Bool { self == .ingot }

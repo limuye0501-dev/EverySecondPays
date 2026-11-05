@@ -1,103 +1,89 @@
 import SwiftUI
 
-/// Glass piggy bank: baked images cross-faded by fill level, with a falling-coin overlay.
-/// The landing sound, AHAP haptic and visual impact are fired together from the render loop
-/// at the frame the coin actually reaches the slot.
+/// Glass piggy bank. The picture is always the half-full photo.
+/// Each earned second drops one coin through the slot. SpriteKit then runs gravity,
+/// bounces, and collisions with the glass and the coins already inside, until the coin rests.
+/// Rested coins fade away. They are not added to the pile, so the fill level never rises.
 struct PiggyView: View {
-    var fill: Double              // 0…1
+    var fill: Double              // today's earnings progress, 0…1 — sound/haptics only, not the picture
     var skin: PiggySkin = .glass
     var dropTrigger: Int          // increments once per second while earning
-    @State private var coins: [FallingCoin] = []
+    @StateObject private var bridge = PiggyBridge()
     @State private var impacts = 0
-    @State private var lastImpact = Date.distantPast
     @State private var lastFullness = 0.0
-    @StateObject private var landing = LandingTracker()
+    @State private var lastCoin = Date.distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    static let fall: TimeInterval = 0.9
-    static let landT = 0.92
-
     var body: some View {
-        ZStack {
-            pig
-                .keyframeAnimator(initialValue: 1.0, trigger: impacts) { v, s in v.scaleEffect(x: 2 - s, y: s, anchor: .bottom) } keyframes: { _ in
-                    KeyframeTrack {
-                        CubicKeyframe(reduceMotion ? 1.0 : 1 - 0.012 - 0.02 * lastFullness, duration: 0.06)
-                        SpringKeyframe(1.0, duration: 0.35, spring: .bouncy)
-                    }
+        // The photo is the bottom layer and does not depend on SpriteKit.
+        // The coin view is transparent, so a paused or failed scene cannot cover the piggy with gray.
+        Image(skin.image(fill: 1))
+            .resizable()
+            .scaledToFit()
+            .overlay {
+                if !reduceMotion { SpecularHighlight(skin: skin, fill: 1) }
+            }
+            .keyframeAnimator(initialValue: 1.0, trigger: impacts) { view, scale in
+                view.scaleEffect(x: 2 - scale, y: scale, anchor: .bottom)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(reduceMotion ? 1.0 : 1 - 0.012 - 0.02 * lastFullness, duration: 0.06)
+                    SpringKeyframe(1.0, duration: 0.35, spring: .bouncy)
                 }
-            if !reduceMotion { SpecularHighlight(skin: skin, fill: fill) }
-            TimelineView(.animation(paused: coins.isEmpty)) { tl in
-                Canvas { ctx, size in
-                    let now = tl.date
-                    let slot = CGPoint(x: size.width * 0.52, y: size.height * 0.24)
-                    for c in coins {
-                        let t = now.timeIntervalSince(c.start) / Self.fall
-                        if t >= Self.landT { landing.land(c.id) }
-                        guard t >= 0, t <= 1, !reduceMotion else { continue }
-                        let y = -30 + (slot.y + 30) * pow(t, 2)       // gravity ease-in
-                        let x = slot.x + c.dx * (1 - t)
-                        let squash = t > Self.landT ? 0.75 : 1.0
-                        let w: CGFloat = 30, h = w * (0.25 + 0.75 * abs(cos(t * .pi * 3 + c.phase))) * squash
-                        let r = CGRect(x: x - w / 2, y: y - h / 2, width: w, height: h)
-                        ctx.opacity = t > 0.95 ? (1 - t) * 20 : 1
-                        ctx.fill(Ellipse().path(in: r), with: .linearGradient(Gradient(colors: [Color(hex: 0xFFE49A), Color(hex: 0xE9C46A), Color(hex: 0x9C7A2E)]), startPoint: r.origin, endPoint: CGPoint(x: r.maxX, y: r.maxY)))
-                        ctx.stroke(Ellipse().path(in: r.insetBy(dx: 3, dy: 3 * h / w)), with: .color(Color(hex: 0x8A6A24).opacity(0.7)), lineWidth: 1)
-                    }
-                    // Impact flash at the slot
-                    let it = now.timeIntervalSince(lastImpact) / 0.45
-                    if it >= 0, it < 1 {
-                        ctx.opacity = 1
-                        let rad = reduceMotion ? 18.0 : 10 + 34 * it
-                        let rr = CGRect(x: slot.x - rad, y: slot.y - rad * 0.35, width: rad * 2, height: rad * 0.7)
-                        ctx.stroke(Ellipse().path(in: rr), with: .color(Color(hex: 0xFFE49A).opacity((1 - it) * 0.8)), lineWidth: 2)
-                        ctx.fill(Ellipse().path(in: rr.insetBy(dx: rad * 0.5, dy: rad * 0.17)), with: .color(.white.opacity((1 - it) * 0.35)))
+            }
+            .overlay(alignment: .top) {
+                // Taller than the photo and shifted up, so the coin can start above the piggy
+                // without pushing the rest of the screen down. Not inside the spring scale.
+                if !reduceMotion {
+                    GeometryReader { g in
+                        let tall = g.size.height * (1 + PiggyBankScene.sky)
+                        TransparentCoinView(
+                            scene: bridge.scene,
+                            skin: skin,
+                            running: bridge.simulating && scenePhase == .active
+                        )
+                        .frame(width: g.size.width, height: tall)
+                        .offset(y: -g.size.height * PiggyBankScene.sky)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                     }
                 }
             }
-            .allowsHitTesting(false)
-        }
-        .accessibilityElement().accessibilityLabel(Text("a11y.piggy \(Int(fill * 100))"))
-        .onAppear { landing.onLand = { onLand() } }
-        .onChange(of: dropTrigger) { _, _ in
-            guard scenePhase == .active else { return }
-            let now = Date()
-            coins.removeAll { now.timeIntervalSince($0.start) > 1.2 }
-            coins.append(FallingCoin(start: now, dx: .random(in: -14...14), phase: .random(in: 0...3)))
-        }
-    }
-
-    private func onLand() {
-        lastFullness = fill
-        lastImpact = .now
-        impacts &+= 1
-        CoinSound.shared.coinLanded(fullness: fill)
-    }
-
-    private var pig: some View {
-        ZStack {
-            Image(skin.image(fill: 0)).resizable().scaledToFit()
-            Image(skin.image(fill: 1)).resizable().scaledToFit().opacity(min(1, fill * 2))
-            // Heaped coins above half — extra stacked coins rendered procedurally
-            if fill > 0.5 { CoinHeap(amount: (fill - 0.5) * 2).allowsHitTesting(false) }
-        }
-    }
-}
-
-/// Fires exactly once per coin, from inside the Canvas render pass, hopping to the main queue.
-final class LandingTracker: ObservableObject {
-    var onLand: (() -> Void)?
-    private var landed = Set<UUID>()
-    func land(_ id: UUID) {
-        guard !landed.contains(id) else { return }
-        landed.insert(id)
-        if landed.count > 64 { landed.removeAll(); landed.insert(id) }
-        DispatchQueue.main.async { [weak self] in self?.onLand?() }
+            .accessibilityElement()
+            .accessibilityLabel(Text("a11y.piggy \(Int(fill * 100))"))
+            .onAppear {
+                bridge.fill = fill
+                bridge.scene.apply(skin: skin)
+            }
+            .onChange(of: fill) { _, new in bridge.fill = new }
+            .onChange(of: skin) { _, new in bridge.scene.apply(skin: new) }
+            .onChange(of: reduceMotion) { _, on in
+                guard on else { return }
+                bridge.simulating = false
+                bridge.scene.clearCoins()
+            }
+            .onChange(of: bridge.landToken) { _, _ in
+                lastFullness = bridge.landFill
+                impacts &+= 1
+            }
+            .onChange(of: dropTrigger) { _, _ in
+                guard scenePhase == .active else { return }
+                let now = Date()
+                // One coin animation per second. Extra earnings ticks do not add coins.
+                guard now.timeIntervalSince(lastCoin) >= PiggyBankScene.dropInterval else { return }
+                lastCoin = now
+                bridge.fill = fill
+                if reduceMotion {
+                    // No travel and no bounce. One clink at the moment the coin would have landed.
+                    CoinSound.shared.coinLanded(fullness: fill)
+                    return
+                }
+                bridge.simulating = true
+                bridge.scene.drop()
+            }
     }
 }
-
-struct FallingCoin { let id = UUID(); let start: Date; let dx: CGFloat; let phase: Double }
 
 /// Soft glass specular that slides with device tilt (CoreMotion), masked to the piggy silhouette.
 struct SpecularHighlight: View {
@@ -120,21 +106,5 @@ struct SpecularHighlight: View {
         .accessibilityHidden(true)
         .onAppear { TiltManager.shared.start() }
         .onDisappear { TiltManager.shared.stop() }
-    }
-}
-
-struct CoinHeap: View {
-    var amount: Double
-    var body: some View {
-        GeometryReader { g in
-            let n = Int(amount * 40)
-            ForEach(0..<n, id: \.self) { i in
-                let rx = sin(Double(i) * 12.9898) * 0.5, ry = cos(Double(i) * 78.233) * 0.5
-                Ellipse().fill(LinearGradient(colors: [Color(hex: 0xFFE49A), Color(hex: 0x9C7A2E)], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 22, height: 9).opacity(0.85)
-                    .position(x: g.size.width * (0.5 + rx * 0.45), y: g.size.height * (0.62 - amount * 0.18 + ry * 0.1))
-            }
-        }
-        .blendMode(.screen).opacity(0.8)
     }
 }

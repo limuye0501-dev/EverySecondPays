@@ -73,4 +73,4 @@
 "share.title" = "分享";
 "widget.locked" = "解锁 Pro 使用此小组件";
 "share.tagline" = "每一秒都在赚钱";
-"a11y.piggy %lld" = "存钱罐，已满 %lld%%";
+"a11y.piggy %lld" = "半满的存钱罐。今日进度 %lld%%";
