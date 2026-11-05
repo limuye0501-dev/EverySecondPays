@@ -69,6 +69,8 @@
 "skin.ceramic" = "Ceramic Piggy";
 "skin.crystal" = "Crystal Piggy";
 "skin.ingot" = "Ingot Piggy (tip bonus)";
-"share.headline" = "Today I have earned";
+"share.headline" = "Earned today";
 "share.title" = "Share";
 "widget.locked" = "Unlock Pro to use this widget";
+"share.tagline" = "Every second pays";
+"a11y.piggy %lld" = "Piggy bank, %lld%% full";

@@ -6,6 +6,7 @@ struct MainView: View {
     @State private var tick = 0
     @State private var showSettings = false
     @State private var showPaywall = false
+    @State private var wasFull: Bool?
     @ObservedObject private var iap = StoreManager.shared
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -48,6 +49,7 @@ struct MainView: View {
         .onReceive(timer) { d in
             now = d
             if store.earnings.isEarning(d) { tick &+= 1 }
+            checkPiggyFull(d)
             if Int(d.timeIntervalSince1970) % 60 == 0, iap.isPro { LiveActivityManager.startOrUpdate(store.earnings) }
         }
         .task {
@@ -58,15 +60,35 @@ struct MainView: View {
             default: break
             }
         }
-        .onAppear { if iap.isPro { LiveActivityManager.startOrUpdate(e) } }
+        .onAppear { _ = Self.firstLaunch; if iap.isPro { LiveActivityManager.startOrUpdate(e) } }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store) }
         .sheet(isPresented: $showPaywall) { PaywallView() }
+    }
+
+    /// Soft paywall: shown once, right after the first time the piggy fills up (not on first launch).
+    /// True only during the very first app session (no soft paywall then).
+    static let firstLaunch: Bool = {
+        let k = "launched.before"; let first = !UserDefaults.standard.bool(forKey: k)
+        UserDefaults.standard.set(true, forKey: k); return first
+    }()
+
+    private func checkPiggyFull(_ d: Date) {
+        let full = store.earnings.fill(d) >= 1
+        defer { wasFull = full }
+        guard full, wasFull == false || (wasFull == nil && !Self.firstLaunch) else { return }
+        CoinSound.shared.piggyFull()
+        let key = "softPaywall.shown"
+        guard !iap.isPro, !UserDefaults.standard.bool(forKey: key), UserDefaults.standard.string(forKey: "ESPDemo") == nil,
+              !showSettings, !showPaywall else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        Task { try? await Task.sleep(for: .seconds(1.8)); showPaywall = true }
     }
 
     private func stat(_ key: LocalizedStringKey, _ v: String) -> some View {
         VStack(spacing: 2) {
             Text(key).font(.caption2).foregroundStyle(Palette.cream.opacity(0.7))
-            Text(v).font(.system(.callout, design: .serif).monospacedDigit().weight(.semibold)).foregroundStyle(Color(hex: 0xF2D690))
+            Text(v).font(.system(.callout, design: .rounded).monospacedDigit().weight(.semibold)).foregroundStyle(Color(hex: 0xF2D690))
+                .lineLimit(1).minimumScaleFactor(0.6)
         }
         .padding(10).frame(maxWidth: 150)
         .background(RoundedRectangle(cornerRadius: 12).fill(.black.opacity(0.28)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.08))))

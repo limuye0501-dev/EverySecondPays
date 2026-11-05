@@ -69,6 +69,8 @@
 "skin.ceramic" = "陶瓷猪";
 "skin.crystal" = "水晶猪";
 "skin.ingot" = "元宝猪（打赏彩蛋）";
-"share.headline" = "今天我已经赚了";
+"share.headline" = "今天已赚";
 "share.title" = "分享";
 "widget.locked" = "解锁 Pro 使用此小组件";
+"share.tagline" = "每一秒都在赚钱";
+"a11y.piggy %lld" = "存钱罐，已满 %lld%%";
