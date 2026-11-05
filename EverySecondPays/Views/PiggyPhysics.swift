@@ -278,7 +278,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         let primary = !coin.didLand && strength >= 0.20
         if primary { coin.didLand = true }
         let playSound = shouldSound(coin, strength: strength, primary: primary, now: now)
-        flash(at: contact.contactPoint, strength: CGFloat(strength))
         onHit?(primary
             ? .land(strength: strength, sound: playSound)
             : .bounce(strength: strength, sound: playSound))
@@ -425,7 +424,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
             coin.didLand = true
             let playSound = coin.audible && coin.soundsPlayed == 0
             if playSound { coin.soundsPlayed = 1 }
-            flash(at: coin.position, strength: 0.45)
             onHit?(.land(strength: 0.45, sound: playSound))
         }
         coin.physicsBody = nil
@@ -443,22 +441,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         coin.soundsPlayed += 1
         coin.lastSound = now
         return true
-    }
-
-    private func flash(at p: CGPoint, strength: CGFloat) {
-        let radius = 7 + 16 * strength
-        let ring = SKShapeNode(ellipseOf: CGSize(width: radius * 2, height: radius))
-        ring.position = p
-        ring.zPosition = 4
-        ring.strokeColor = UIColor(red: 1, green: 0.89, blue: 0.60, alpha: 0.9)
-        ring.fillColor = UIColor(white: 1, alpha: 0.28)
-        ring.lineWidth = 1.5
-        ring.glowWidth = 0
-        crop.addChild(ring)
-        ring.run(.sequence([
-            .group([.scale(to: 2.1, duration: 0.26), .fadeOut(withDuration: 0.26)]),
-            .removeFromParent(),
-        ]))
     }
 
     private func speed(of coin: CoinNode) -> CGFloat {
