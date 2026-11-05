@@ -34,7 +34,7 @@ struct PiggyView: View {
             .overlay {
                 if !reduceMotion {
                     SpriteView(
-                        bridge.scene,
+                        scene: bridge.scene,
                         isPaused: !bridge.simulating || scenePhase != .active,
                         preferredFramesPerSecond: 120,
                         options: [.allowsTransparency]
