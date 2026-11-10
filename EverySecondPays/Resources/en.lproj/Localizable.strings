@@ -26,7 +26,15 @@
 "onboarding.subtitle" = "Enter your salary and hours — a gold coin drops into the piggy bank every second you work.";
 "onboarding.start" = "Start Earning";
 "widget.offIn" = "Off in";
-"widget.description" = "See how much you've earned today.";
+"widget.description" = "Today's pay, time until clock-off, and this month. Shows a labeled example until you set your salary.";
+"widget.example" = "Example";
+"widget.tapToSet" = "Tap to set your salary";
+"widget.month" = "This month";
+"widget.lunch" = "At lunch";
+"widget.startsAt" = "Starts in";
+"widget.done" = "Clocked off";
+"widget.dayOff" = "Day off";
+"widget.nextShift" = "Next";
 "sound.empty_pig" = "Empty Piggy";
 "sound.coin_pile" = "Onto the Pile";
 "sound.ceramic_pig" = "Ceramic Piggy";
@@ -39,7 +47,7 @@
 "common.close" = "Close";
 "paywall.title" = "Unlock Pro";
 "paywall.f.sounds" = "All 5 real coin-drop sounds";
-"paywall.f.widgets" = "Medium & Lock Screen widgets, Live Activity";
+"paywall.f.widgets" = "Live Activity on the Lock Screen and Dynamic Island";
 "paywall.f.skins" = "Golden, Ceramic and Crystal piggy skins";
 "paywall.f.custom" = "Custom lunch break, overtime pay, year-end bonus";
 "paywall.f.history" = "This month / this year totals";

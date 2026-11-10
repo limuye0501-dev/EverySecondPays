@@ -22,6 +22,10 @@ struct EverySecondPaysApp: App {
             }
             .environmentObject(store)
             .preferredColorScheme(.dark)
+            .onOpenURL { url in
+                guard url.scheme == "everysecondpays", store.settings.onboarded else { return }
+                store.openSettingsRequest = true
+            }
         }
     }
 }
