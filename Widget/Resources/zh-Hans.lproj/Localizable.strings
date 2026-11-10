@@ -26,7 +26,15 @@
 "onboarding.subtitle" = "填好月薪和上班时间，每一秒都有金币落进存钱罐。";
 "onboarding.start" = "开始攒钱";
 "widget.offIn" = "距下班";
-"widget.description" = "看看今天已经赚了多少。";
+"widget.description" = "今天赚了多少、距下班还有多久、本月累计。未设置月薪时显示标明的示例。";
+"widget.example" = "示例";
+"widget.tapToSet" = "轻点设置月薪";
+"widget.month" = "本月";
+"widget.lunch" = "午休中";
+"widget.startsAt" = "距上班";
+"widget.done" = "已下班";
+"widget.dayOff" = "今日休息";
+"widget.nextShift" = "下次上班";
 "sound.empty_pig" = "空存钱罐";
 "sound.coin_pile" = "落在硬币堆";
 "sound.ceramic_pig" = "陶瓷小猪";
@@ -39,7 +47,7 @@
 "common.close" = "关闭";
 "paywall.title" = "解锁 Pro 完整版";
 "paywall.f.sounds" = "全部 5 种真实投币音效";
-"paywall.f.widgets" = "中号小组件、锁屏小组件、灵动岛实时活动";
+"paywall.f.widgets" = "锁屏与灵动岛实时活动";
 "paywall.f.skins" = "金猪、陶瓷猪、水晶猪皮肤";
 "paywall.f.custom" = "自定义午休、加班费、年终奖";
 "paywall.f.history" = "本月 / 今年收入统计";

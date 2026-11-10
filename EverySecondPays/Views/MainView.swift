@@ -60,7 +60,12 @@ struct MainView: View {
             default: break
             }
         }
-        .onAppear { _ = Self.firstLaunch; if iap.isPro { LiveActivityManager.startOrUpdate(e) } }
+        .onAppear {
+            _ = Self.firstLaunch
+            if iap.isPro { LiveActivityManager.startOrUpdate(e) }
+            openSettingsIfRequested()
+        }
+        .onChange(of: store.openSettingsRequest) { _, _ in openSettingsIfRequested() }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store) }
         .sheet(isPresented: $showPaywall) { PaywallView() }
     }
@@ -71,6 +76,12 @@ struct MainView: View {
         let k = "launched.before"; let first = !UserDefaults.standard.bool(forKey: k)
         UserDefaults.standard.set(true, forKey: k); return first
     }()
+
+    private func openSettingsIfRequested() {
+        guard store.openSettingsRequest else { return }
+        store.openSettingsRequest = false
+        showSettings = true
+    }
 
     private func checkPiggyFull(_ d: Date) {
         let full = store.earnings.fill(d) >= 1

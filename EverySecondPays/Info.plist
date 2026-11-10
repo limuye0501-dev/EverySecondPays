@@ -15,4 +15,8 @@
 <key>UIRequiresFullScreen</key><true/>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>com.limuye.everysecondpays</string>
+<key>CFBundleURLSchemes</key><array><string>everysecondpays</string></array>
+</dict></array>
 </dict></plist>

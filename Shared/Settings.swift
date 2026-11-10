@@ -3,6 +3,16 @@ import Foundation
 enum AppGroup {
     static let id = (Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String) ?? "group.com.limuye.everysecondpays"
     static let defaults = UserDefaults(suiteName: id) ?? .standard
+    /// File mirror of the settings blob. WidgetKit on iPad sometimes gets an empty
+    /// suite object even when the app-group container itself is readable.
+    static var fileURL: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: id)?
+            .appendingPathComponent("work.settings.v2.json")
+    }
+}
+
+enum AppLink {
+    static let salary = URL(string: "everysecondpays://salary")!
 }
 
 struct WorkSettings: Codable, Equatable {
@@ -27,12 +37,85 @@ struct WorkSettings: Codable, Equatable {
     var installDate: Date = Calendar.current.startOfDay(for: .now)
 
     static let key = "work.settings.v2"
-    static func load() -> WorkSettings {
-        guard let d = AppGroup.defaults.data(forKey: key),
-              let s = try? JSONDecoder().decode(WorkSettings.self, from: d) else { return WorkSettings() }
-        return s
+
+    /// No completed onboarding, or a salary that cannot earn. Widgets use `example()` then.
+    var showsExampleSalary: Bool { !onboarded || monthlySalary <= 0 }
+
+    static var suggestedCurrency: String {
+        let lang = Locale.current.language.languageCode?.identifier ?? ""
+        if lang.hasPrefix("zh") { return "¥" }
+        switch Locale.current.region?.identifier {
+        case "GB": return "£"
+        case "HK": return "HK$"
+        case "DE", "FR", "ES", "IT", "NL", "IE", "PT", "AT", "BE", "FI": return "€"
+        default: return "$"
+        }
     }
-    func save() { AppGroup.defaults.set(try? JSONEncoder().encode(self), forKey: Self.key) }
+
+    /// Labeled sample used when the reviewer (or a new install) has not entered a salary.
+    /// Workdays stay Mon–Fri so weekends render the off-work state instead of a blank.
+    static func example() -> WorkSettings {
+        var w = WorkSettings()
+        w.monthlySalary = 10_000
+        w.workDays = [2, 3, 4, 5, 6]
+        w.startMinutes = 9 * 60
+        w.endMinutes = 18 * 60
+        w.lunchBreakMinutes = 60
+        w.currencySymbol = suggestedCurrency
+        w.onboarded = false
+        w.skin = PiggySkin.glass.rawValue
+        w.countOvertime = false
+        w.yearEndBonusMonths = 0
+        let cal = Calendar.current
+        w.installDate = cal.dateInterval(of: .month, for: .now)?.start ?? cal.startOfDay(for: .now)
+        return w
+    }
+
+    /// Settings the widget should render. Never an empty model.
+    static func forWidget() -> WorkSettings {
+        let saved = load()
+        return saved.showsExampleSalary ? example() : saved
+    }
+
+    /// A mid-afternoon moment inside working hours, so the widget gallery is never ¥0.
+    static func representativeWorkDate(for settings: WorkSettings, around now: Date = .now) -> Date {
+        let cal = Calendar.current
+        let earnings = Earnings(s: settings)
+        let start = cal.startOfDay(for: now)
+        for offset in 0..<8 {
+            guard let day = cal.date(byAdding: .day, value: offset, to: start),
+                  let at = cal.date(bySettingHour: 15, minute: 30, second: 0, of: day),
+                  earnings.isEarning(at) else { continue }
+            return at
+        }
+        return now
+    }
+
+    static func load() -> WorkSettings {
+        func decode(_ data: Data) -> WorkSettings? { try? JSONDecoder().decode(WorkSettings.self, from: data) }
+        let fromDefaults = AppGroup.defaults.data(forKey: key).flatMap(decode)
+        let fromFile: WorkSettings? = {
+            guard let url = AppGroup.fileURL, let data = try? Data(contentsOf: url) else { return nil }
+            return decode(data)
+        }()
+        switch (fromDefaults, fromFile) {
+        case let (d?, f?) where d.showsExampleSalary && !f.showsExampleSalary:
+            return f
+        case let (d?, _):
+            return d
+        case let (nil, f?):
+            return f
+        default:
+            return WorkSettings()
+        }
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        AppGroup.defaults.set(data, forKey: Self.key)
+        guard let url = AppGroup.fileURL else { return }
+        try? data.write(to: url, options: .atomic)
+    }
 }
 
 enum SoundOption: String, CaseIterable, Codable, Identifiable {
@@ -98,10 +181,75 @@ struct Earnings {
     /// Today's work progress, 0…1. This does not change the piggy picture.
     /// The bank is always drawn half full; this value still drives the lock-screen gauge and the "day complete" paywall.
     func fill(_ now: Date = .now) -> Double { dailyWorkSeconds > 0 ? min(1, workedSeconds(on: now) / dailyWorkSeconds) : 0 }
+
+    func phase(at now: Date) -> WorkPhase {
+        if isOvertime(now) {
+            let until = cal.startOfDay(for: now).addingTimeInterval(Double(s.overtimeEndMinutes) * 60)
+            return .earning(until: until)
+        }
+        guard isWorkDay(now) else { return .dayOff(next: nextEarningStart(after: now)) }
+        let shiftStart = start(of: now)
+        let shiftEnd = end(of: now)
+        if now < shiftStart { return .beforeShift(starts: shiftStart) }
+        if s.lunchBreakMinutes > 0 {
+            let lunchStart = cal.startOfDay(for: now).addingTimeInterval(Double(lunchStartMin) * 60)
+            let lunchEnd = lunchStart.addingTimeInterval(Double(s.lunchBreakMinutes) * 60)
+            if now >= lunchStart && now < lunchEnd { return .lunch(until: lunchEnd) }
+        }
+        if now < shiftEnd { return .earning(until: shiftEnd) }
+        return .afterShift(next: nextEarningStart(after: now))
+    }
+
+    /// Next moment earning begins, within the coming week.
+    func nextEarningStart(after now: Date) -> Date? {
+        let startDay = cal.startOfDay(for: now)
+        for offset in 0..<8 {
+            guard let day = cal.date(byAdding: .day, value: offset, to: startDay), isWorkDay(day) else { continue }
+            let shiftStart = start(of: day)
+            if shiftStart > now { return shiftStart }
+        }
+        return nil
+    }
+
+    /// Shift, lunch, overtime and midnight boundaries after `now`, so a timeline can flip state without a reload.
+    func scheduleMarks(after now: Date, days: Int = 3) -> [Date] {
+        var marks: [Date] = []
+        let startDay = cal.startOfDay(for: now)
+        for offset in 0..<days {
+            guard let day = cal.date(byAdding: .day, value: offset, to: startDay) else { continue }
+            var points = [start(of: day), end(of: day)]
+            if s.lunchBreakMinutes > 0 {
+                let lunchStart = cal.startOfDay(for: day).addingTimeInterval(Double(lunchStartMin) * 60)
+                points.append(lunchStart)
+                points.append(lunchStart.addingTimeInterval(Double(s.lunchBreakMinutes) * 60))
+            }
+            if s.countOvertime {
+                points.append(cal.startOfDay(for: day).addingTimeInterval(Double(s.overtimeEndMinutes) * 60))
+            }
+            if let midnight = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: day)) {
+                points.append(midnight)
+            }
+            marks.append(contentsOf: points.filter { $0 > now })
+        }
+        return Array(Set(marks)).sorted()
+    }
+}
+
+enum WorkPhase: Equatable {
+    case earning(until: Date)
+    case lunch(until: Date)
+    case beforeShift(starts: Date)
+    case afterShift(next: Date?)
+    case dayOff(next: Date?)
 }
 
 extension Double {
     func money(_ sym: String, digits: Int = 2) -> String { sym + String(format: "%.\(digits)f", self) }
+    /// Shorter form for the circular lock-screen widget.
+    func compactMoney(_ sym: String) -> String {
+        if abs(self) >= 100 { return sym + String(format: "%.0f", self) }
+        return money(sym, digits: 2)
+    }
 }
 
 enum PiggySkin: String, CaseIterable, Codable, Identifiable {
