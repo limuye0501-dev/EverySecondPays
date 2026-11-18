@@ -76,7 +76,12 @@ jobs:
             if [ "$CODE" -ne 0 ]; then echo "TESTS_FAILED_$KIND"; exit "$CODE"; fi
             test -n "$(find "widget-snapshots/$KIND" -name '*.png' -print -quit)"
           done
-          find widget-snapshots -name '*.png' | sort
-      - if: always()
+          find widget-snapshots -name '*.png' -exec ls -la {} \; | sort
+          zip -qr widget-snapshots.zip widget-snapshots
+          ls -la widget-snapshots.zip
+      - if: success()
         uses: actions/upload-artifact@v4
-        with: { name: widget-snapshots, path: widget-snapshots }
+        with:
+          name: widget-snapshots
+          path: widget-snapshots.zip
+          compression-level: 0
