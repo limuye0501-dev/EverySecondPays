@@ -42,24 +42,26 @@ enum WidgetTimelinePlan {
         let earnings = Earnings(s: settings)
         var dates: [Date] = [now]
         if earnings.isEarning(now) {
-            let fineUntil = now.addingTimeInterval(5 * 60)
+            // One minute of per-second entries so the amount visibly steps, then a light minute grid.
+            // Hundreds of entries plus full-size photos were enough to jetsam the extension (blank widget).
+            let fineUntil = now.addingTimeInterval(60)
             var t = now.addingTimeInterval(1)
-            while t < fineUntil {
+            while t <= fineUntil {
                 dates.append(t)
                 t = t.addingTimeInterval(1)
             }
-            let coarseUntil = now.addingTimeInterval(3 * 60 * 60)
-            var m = fineUntil
-            while m < coarseUntil {
+            let coarseUntil = now.addingTimeInterval(2 * 60 * 60)
+            var m = fineUntil.addingTimeInterval(60)
+            while m <= coarseUntil {
                 dates.append(m)
                 m = m.addingTimeInterval(60)
             }
-            dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 2).filter { $0 < coarseUntil.addingTimeInterval(60) })
+            dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 2).filter { $0 <= coarseUntil })
         } else {
             dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 3))
         }
         let unique = Array(Set(dates)).sorted()
-        let capped = unique.count > 520 ? Array(unique.prefix(520)) : unique
+        let capped = unique.count > 160 ? Array(unique.prefix(160)) : unique
         let last = capped.last ?? now.addingTimeInterval(15 * 60)
         let reload = max(last.addingTimeInterval(1), now.addingTimeInterval(60))
         return (capped.isEmpty ? [now] : capped, reload)
@@ -72,7 +74,8 @@ struct HomeWidgetView: View {
 
     private var earnings: Earnings { Earnings(s: entry.s) }
     private var phase: WorkPhase { earnings.phase(at: entry.date) }
-    private var amount: String { earnings.earnedToday(entry.date).money(entry.s.currencySymbol) }
+    private var amount: String { earnings.earnedToday(entry.date).money(entry.s.currencySymbol, digits: 3) }
+    private var perHour: String { earnings.perHour.money(entry.s.currencySymbol) }
     private var month: String { earnings.monthTotal(entry.date).money(entry.s.currencySymbol) }
     private var perSecond: String { earnings.perSecond.money(entry.s.currencySymbol, digits: 4) }
     private var perDay: String { earnings.perDay.money(entry.s.currencySymbol) }
@@ -97,16 +100,16 @@ struct HomeWidgetView: View {
         }
         .padding(padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .unredacted()
         .widgetURL(AppLink.salary)
         .accessibilityElement(children: .combine)
     }
 
     private var padding: CGFloat {
         switch family {
-        case .systemSmall: return 8
-        case .systemMedium: return 10
-        case .systemLarge, .systemExtraLarge: return 14
-        case .accessoryRectangular: return 2
+        case .systemSmall, .systemMedium: return 0
+        case .systemLarge, .systemExtraLarge: return 2
+        case .accessoryRectangular: return 0
         default: return 0
         }
     }
@@ -148,7 +151,7 @@ struct HomeWidgetView: View {
                 status(compact: false).font(.caption2)
                 HStack(spacing: 10) {
                     statLine("widget.month", month)
-                    statLine("main.perSecond", perSecond)
+                    statLine("widget.perHour", perHour)
                 }
                 if entry.s.showsExampleSalary { tapHint }
             }
@@ -173,7 +176,7 @@ struct HomeWidgetView: View {
             }
             HStack(spacing: 8) {
                 metric("widget.month", month)
-                metric("main.perSecond", perSecond)
+                metric("widget.perHour", perHour)
                 metric("main.perDay", perDay)
             }
             if entry.s.showsExampleSalary { tapHint }
@@ -195,7 +198,7 @@ struct HomeWidgetView: View {
                 status(compact: false).font(.callout)
                 HStack(spacing: 12) {
                     metric("widget.month", month)
-                    metric("main.perSecond", perSecond)
+                    metric("widget.perHour", perHour)
                     metric("main.perDay", perDay)
                 }
                 if entry.s.showsExampleSalary { tapHint }
@@ -289,10 +292,8 @@ struct HomeWidgetView: View {
             Capsule()
                 .fill(Color.white.opacity(0.14))
                 .overlay(alignment: .leading) {
-                    GeometryReader { geo in
-                        Capsule().fill(WidgetPalette.gold)
-                            .frame(width: geo.size.width * min(1, max(0, fill)))
-                    }
+                    Capsule().fill(WidgetPalette.gold)
+                        .scaleEffect(x: min(1, max(0.04, fill)), y: 1, anchor: .leading)
                 }
                 .frame(height: 6)
                 .clipped()
@@ -422,7 +423,6 @@ struct EarningsWidget: Widget {
             .systemSmall, .systemMedium, .systemLarge, .systemExtraLarge,
             .accessoryRectangular, .accessoryCircular, .accessoryInline
         ])
-        .contentMarginsDisabled()
     }
 }
 
@@ -540,66 +540,58 @@ struct EarningsLiveActivity: Widget {
     }
 }
 
+#if !WIDGET_SNAPSHOT
 @main
 struct WidgetsBundle: WidgetBundle {
     var body: some Widget { EarningsWidget(); EarningsLiveActivity() }
 }
+#endif
 
 enum WidgetSamples {
     static func clock(_ hour: Int, _ minute: Int, on base: Date) -> Date {
         Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: base) ?? base
     }
 
-    static var afternoon: Date { WorkSettings.representativeWorkDate(for: WorkSettings.example()) }
-
-    static var exampleEarning: Entry {
-        let s = WorkSettings.example()
-        return Entry(date: WorkSettings.representativeWorkDate(for: s), s: s)
-    }
-
-    static var configuredEarning: Entry {
+    static func office() -> WorkSettings {
         var s = WorkSettings.example()
         s.onboarded = true
         s.monthlySalary = 20_000
         s.currencySymbol = "¥"
+        s.workDays = [2, 3, 4, 5, 6]
+        s.startMinutes = 9 * 60
+        s.endMinutes = 18 * 60
+        s.lunchBreakMinutes = 60
+        return s
+    }
+
+    static var afternoon: Date { WorkSettings.representativeWorkDate(for: office()) }
+
+    static var exampleEarning: Entry {
+        let s = WorkSettings.example()
+        return Entry(date: .now, s: s)
+    }
+
+    static var configuredEarning: Entry {
+        let s = office()
         return Entry(date: WorkSettings.representativeWorkDate(for: s), s: s)
     }
 
-    static var beforeShift: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(7, 40, on: afternoon), s: s)
-    }
-
-    static var lunch: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(12, 30, on: afternoon), s: s)
-    }
-
-    static var afterShift: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(19, 10, on: afternoon), s: s)
-    }
+    static var beforeShift: Entry { Entry(date: clock(7, 40, on: afternoon), s: office()) }
+    static var lunch: Entry { Entry(date: clock(12, 30, on: afternoon), s: office()) }
+    static var afterShift: Entry { Entry(date: clock(19, 10, on: afternoon), s: office()) }
 
     static var dayOff: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
         let cal = Calendar.current
         var day = cal.startOfDay(for: afternoon)
         for _ in 0..<8 {
             if cal.component(.weekday, from: day) == 7 { break }
             day = cal.date(byAdding: .day, value: 1, to: day) ?? day
         }
-        return Entry(date: clock(11, 0, on: day), s: s)
+        return Entry(date: clock(11, 0, on: day), s: office())
     }
-
 }
+
+#if !WIDGET_SNAPSHOT
 
 #Preview("Small", as: .systemSmall) {
     EarningsWidget()
@@ -683,3 +675,4 @@ enum WidgetSamples {
     .padding()
     .background(WidgetPalette.bgBottom)
 }
+#endif

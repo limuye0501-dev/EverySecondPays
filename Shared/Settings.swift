@@ -52,15 +52,15 @@ struct WorkSettings: Codable, Equatable {
         }
     }
 
-    /// Labeled sample used when the reviewer (or a new install) has not entered a salary.
-    /// Workdays stay Mon–Fri so weekends render the off-work state instead of a blank.
+    /// Labeled sample used when nobody has entered a salary yet.
+    /// Every weekday, almost all day, so the amount is increasing whenever the widget is opened.
     static func example() -> WorkSettings {
         var w = WorkSettings()
         w.monthlySalary = 10_000
-        w.workDays = [2, 3, 4, 5, 6]
-        w.startMinutes = 9 * 60
-        w.endMinutes = 18 * 60
-        w.lunchBreakMinutes = 60
+        w.workDays = Set(1...7)
+        w.startMinutes = 0
+        w.endMinutes = 23 * 60 + 59
+        w.lunchBreakMinutes = 0
         w.currencySymbol = suggestedCurrency
         w.onboarded = false
         w.skin = PiggySkin.glass.rawValue
@@ -134,6 +134,7 @@ struct Earnings {
     var workDaysPerMonth: Double { Double(max(1, s.workDays.count)) * 52.0 / 12.0 }
     var monthlyIncome: Double { s.monthlySalary * (1 + s.yearEndBonusMonths / 12) }
     var perSecond: Double { dailyWorkSeconds > 0 ? monthlyIncome / workDaysPerMonth / dailyWorkSeconds : 0 }
+    var perHour: Double { perSecond * 3600 }
     var perDay: Double { perSecond * dailyWorkSeconds }
 
     func start(of d: Date) -> Date { cal.startOfDay(for: d).addingTimeInterval(Double(s.startMinutes) * 60) }

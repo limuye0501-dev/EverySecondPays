@@ -9,12 +9,13 @@
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
-<key>AppGroupID</key><string>$(APP_GROUP)</string>
+<key>AppGroupID</key><string>group.com.limuye.everysecondpays</string>
 <key>NSSupportsLiveActivities</key><true/>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>UIRequiresFullScreen</key><true/>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string></array>
 <key>CFBundleURLTypes</key><array><dict>
 <key>CFBundleURLName</key><string>com.limuye.everysecondpays</string>
 <key>CFBundleURLSchemes</key><array><string>everysecondpays</string></array>

@@ -27,8 +27,9 @@
 "onboarding.start" = "Start Earning";
 "widget.offIn" = "Off in";
 "widget.description" = "Today's pay, time until clock-off, and this month. Shows a labeled example until you set your salary.";
-"widget.example" = "Example";
-"widget.tapToSet" = "Tap to set your salary";
+"widget.example" = "Sample";
+"widget.tapToSet" = "Sample · tap to set your salary";
+"widget.perHour" = "Per hour";
 "widget.month" = "This month";
 "widget.lunch" = "At lunch";
 "widget.startsAt" = "Starts in";
