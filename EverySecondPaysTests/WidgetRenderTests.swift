@@ -87,11 +87,21 @@ final class WidgetRenderTests: XCTestCase {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         renderer.proposedSize = ProposedViewSize(size)
-        guard let image = renderer.uiImage else {
-            XCTFail("ImageRenderer returned nil for \(family)")
-            throw CocoaError(.fileNoSuchFile)
+        if let image = renderer.uiImage, image.size.width > 1 { return image }
+        let hosting = UIHostingController(rootView: view)
+        hosting.overrideUserInterfaceStyle = .dark
+        hosting.view.bounds = CGRect(origin: .zero, size: size)
+        hosting.view.backgroundColor = .clear
+        let window = UIWindow(frame: hosting.view.bounds)
+        window.rootViewController = hosting
+        window.makeKeyAndVisible()
+        hosting.view.setNeedsLayout()
+        hosting.view.layoutIfNeeded()
+        let drawn = UIGraphicsImageRenderer(size: size).image { _ in
+            hosting.view.drawHierarchy(in: hosting.view.bounds, afterScreenUpdates: false)
         }
-        return image
+        window.isHidden = true
+        return drawn
     }
 
     private func brightPixelCount(_ image: UIImage) -> Int {

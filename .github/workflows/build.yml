@@ -54,10 +54,11 @@ jobs:
           ipad = pick(lambda n: "iPad Air 11-inch" in n, "iPad Air 11-inch")
           pros = [d for d in rows if d["name"].startswith("iPhone") and "Pro" in d["name"] and "Max" not in d["name"]]
           iphone = sorted(pros, key=lambda d: d["name"])[-1] if pros else pick(lambda n: n.startswith("iPhone"), "iPhone")
-          open(os.environ["GITHUB_ENV"], "a").write(f"IPAD_UDID={ipad['udid']}\nIPAD_NAME={ipad['name']}\nIPHONE_UDID={iphone['udid']}\nIPHONE_NAME={iphone['name']}\n")
+          open("devices.env","w").write(f"IPAD_UDID={ipad['udid']}\nIPHONE_UDID={iphone['udid']}\n")
           print("IPAD", ipad["name"], ipad["udid"])
           print("IPHONE", iphone["name"], iphone["udid"])
           PY
+          set -a; source devices.env; set +a
           mkdir -p widget-snapshots/ipad widget-snapshots/iphone
           for PAIR in "ipad:$IPAD_UDID" "iphone:$IPHONE_UDID"; do
             KIND=${PAIR%%:*}; UDID=${PAIR#*:}
