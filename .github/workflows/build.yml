@@ -60,22 +60,34 @@ jobs:
           PY
           set -a; source devices.env; set +a
           mkdir -p widget-snapshots/ipad widget-snapshots/iphone
-          for PAIR in "ipad:$IPAD_UDID" "iphone:$IPHONE_UDID"; do
-            KIND=${PAIR%%:*}; UDID=${PAIR#*:}
-            xcrun simctl boot "$UDID" || true
-            xcrun simctl bootstatus "$UDID" -b
+          run_one() {
             set +e
+            KIND="$1"; UDID="$2"
+            xcrun simctl shutdown all || true
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            BOOT=$?
+            if [ "$BOOT" -ne 0 ]; then echo "BOOT_FAILED_$KIND"; set -e; return "$BOOT"; fi
             xcodebuild test -project EverySecondPays.xcodeproj -scheme EverySecondPays -configuration Debug \
-              -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "DerivedData-$KIND" \
+              -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath DerivedData \
               -only-testing:EverySecondPaysWidgetTests \
               CODE_SIGNING_ALLOWED=NO -resultBundlePath "widget-$KIND.xcresult"
             CODE=$?
-            set -e
             find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID" -type d -name widget-snapshots -print
             find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID" -type d -name widget-snapshots -exec cp -R {}/. "widget-snapshots/$KIND/" \;
-            if [ "$CODE" -ne 0 ]; then echo "TESTS_FAILED_$KIND"; exit "$CODE"; fi
-            test -n "$(find "widget-snapshots/$KIND" -name '*.png' -print -quit)"
-          done
+            if [ "$CODE" -ne 0 ]; then echo "TESTS_FAILED_$KIND"; set -e; return "$CODE"; fi
+            find "widget-snapshots/$KIND" -name '*.png' -print -quit | grep -q .
+            RC=$?
+            set -e
+            return "$RC"
+          }
+          run_one ipad "$IPAD_UDID"
+          if ! run_one iphone "$IPHONE_UDID"; then
+            echo "iPhone Pro boot failed; trying another iPhone"
+            FALLBACK=$(IPHONE_UDID="$IPHONE_UDID" python3 -c 'import json,subprocess,os; raw=subprocess.check_output(["xcrun","simctl","list","devices","available","-j"]); rows=[d for rs in json.loads(raw)["devices"].values() for d in rs if d.get("isAvailable") and d["name"].startswith("iPhone") and d["udid"]!=os.environ["IPHONE_UDID"]]; rows.sort(key=lambda d:(0 if "Pro" in d["name"] else 1, d["name"])); print(rows[0]["udid"] if rows else "")')
+            test -n "$FALLBACK"
+            run_one iphone "$FALLBACK"
+          fi
           find widget-snapshots -name '*.png' -exec ls -la {} \; | sort
           zip -qr widget-snapshots.zip widget-snapshots
           ls -la widget-snapshots.zip
