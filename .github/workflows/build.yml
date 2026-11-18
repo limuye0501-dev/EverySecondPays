@@ -25,3 +25,75 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: build-log, path: build.log }
+  widget-snapshots:
+    runs-on: macos-15-intel
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|RC' | sort -V | tail -1); sudo xcode-select -s "$XC"; xcodebuild -version
+      - run: brew install xcodegen && xcodegen generate
+      - name: Render widgets on iPad Air 11-inch and iPhone
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import json, subprocess, os, sys
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          devices = json.loads(raw)["devices"]
+          rows = [d for runtime in devices.values() for d in runtime if d.get("isAvailable")]
+          def pick(pred, label):
+              hits = [d for d in rows if pred(d["name"])]
+              if not hits:
+                  print("NO_DEVICE", label)
+                  print("\n".join(sorted({d["name"] for d in rows})))
+                  sys.exit(1)
+              # Prefer the exact M3 iPad Air 11-inch the reviewer used.
+              hits.sort(key=lambda d: (0 if "M3" in d["name"] else 1, d["name"]))
+              return hits[0]
+          ipad = pick(lambda n: "iPad Air 11-inch" in n, "iPad Air 11-inch")
+          pros = [d for d in rows if d["name"].startswith("iPhone") and "Pro" in d["name"] and "Max" not in d["name"]]
+          iphone = sorted(pros, key=lambda d: d["name"])[-1] if pros else pick(lambda n: n.startswith("iPhone"), "iPhone")
+          open("devices.env","w").write(f"IPAD_UDID={ipad['udid']}\nIPHONE_UDID={iphone['udid']}\n")
+          print("IPAD", ipad["name"], ipad["udid"])
+          print("IPHONE", iphone["name"], iphone["udid"])
+          PY
+          set -a; source devices.env; set +a
+          mkdir -p widget-snapshots/ipad widget-snapshots/iphone
+          run_one() {
+            set +e
+            KIND="$1"; UDID="$2"
+            xcrun simctl shutdown all || true
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            BOOT=$?
+            if [ "$BOOT" -ne 0 ]; then echo "BOOT_FAILED_$KIND"; set -e; return "$BOOT"; fi
+            xcodebuild test -project EverySecondPays.xcodeproj -scheme EverySecondPays -configuration Debug \
+              -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath DerivedData \
+              -only-testing:EverySecondPaysWidgetTests \
+              CODE_SIGNING_ALLOWED=NO -resultBundlePath "widget-$KIND.xcresult"
+            CODE=$?
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID" -type d -name widget-snapshots -print
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID" -type d -name widget-snapshots -exec cp -R {}/. "widget-snapshots/$KIND/" \;
+            if [ "$CODE" -ne 0 ]; then echo "TESTS_FAILED_$KIND"; set -e; return "$CODE"; fi
+            find "widget-snapshots/$KIND" -name '*.png' -print -quit | grep -q .
+            RC=$?
+            set -e
+            return "$RC"
+          }
+          run_one ipad "$IPAD_UDID"
+          if ! run_one iphone "$IPHONE_UDID"; then
+            echo "iPhone Pro boot failed; trying another iPhone"
+            FALLBACK=$(IPHONE_UDID="$IPHONE_UDID" python3 -c 'import json,subprocess,os; raw=subprocess.check_output(["xcrun","simctl","list","devices","available","-j"]); rows=[d for rs in json.loads(raw)["devices"].values() for d in rs if d.get("isAvailable") and d["name"].startswith("iPhone") and d["udid"]!=os.environ["IPHONE_UDID"]]; rows.sort(key=lambda d:(0 if "Pro" in d["name"] else 1, d["name"])); print(rows[0]["udid"] if rows else "")')
+            test -n "$FALLBACK"
+            run_one iphone "$FALLBACK"
+          fi
+          find widget-snapshots -name '*.png' -exec ls -la {} \; | sort
+          zip -qr widget-snapshots.zip widget-snapshots
+          ls -la widget-snapshots.zip
+      - if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: widget-snapshots
+          path: widget-snapshots.zip
+          compression-level: 0

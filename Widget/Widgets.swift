@@ -7,6 +7,28 @@ struct Entry: TimelineEntry {
     let s: WorkSettings
 }
 
+private final class WidgetBundleToken {}
+enum WidgetCopy {
+    /// The bundle that contains this file: the widget extension, or the snapshot test.
+    static let bundle = Bundle(for: WidgetBundleToken.self)
+}
+extension Text {
+    init(l10n key: String) {
+        self.init(LocalizedStringKey(key), bundle: WidgetCopy.bundle)
+    }
+}
+
+private struct ForcedWidgetFamilyKey: EnvironmentKey {
+    static let defaultValue: WidgetFamily? = nil
+}
+extension EnvironmentValues {
+    /// Snapshot tests set this. WidgetKit's own `widgetFamily` is read-only outside a widget.
+    var forcedWidgetFamily: WidgetFamily? {
+        get { self[ForcedWidgetFamilyKey.self] }
+        set { self[ForcedWidgetFamilyKey.self] = newValue }
+    }
+}
+
 enum WidgetPalette {
     static let gold = Color(red: 0.95, green: 0.84, blue: 0.56)
     static let cream = Color(red: 0.984, green: 0.953, blue: 0.882)
@@ -42,24 +64,26 @@ enum WidgetTimelinePlan {
         let earnings = Earnings(s: settings)
         var dates: [Date] = [now]
         if earnings.isEarning(now) {
-            let fineUntil = now.addingTimeInterval(5 * 60)
+            // One minute of per-second entries so the amount visibly steps, then a light minute grid.
+            // Hundreds of entries plus full-size photos were enough to jetsam the extension (blank widget).
+            let fineUntil = now.addingTimeInterval(60)
             var t = now.addingTimeInterval(1)
-            while t < fineUntil {
+            while t <= fineUntil {
                 dates.append(t)
                 t = t.addingTimeInterval(1)
             }
-            let coarseUntil = now.addingTimeInterval(3 * 60 * 60)
-            var m = fineUntil
-            while m < coarseUntil {
+            let coarseUntil = now.addingTimeInterval(2 * 60 * 60)
+            var m = fineUntil.addingTimeInterval(60)
+            while m <= coarseUntil {
                 dates.append(m)
                 m = m.addingTimeInterval(60)
             }
-            dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 2).filter { $0 < coarseUntil.addingTimeInterval(60) })
+            dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 2).filter { $0 <= coarseUntil })
         } else {
             dates.append(contentsOf: earnings.scheduleMarks(after: now, days: 3))
         }
         let unique = Array(Set(dates)).sorted()
-        let capped = unique.count > 520 ? Array(unique.prefix(520)) : unique
+        let capped = unique.count > 160 ? Array(unique.prefix(160)) : unique
         let last = capped.last ?? now.addingTimeInterval(15 * 60)
         let reload = max(last.addingTimeInterval(1), now.addingTimeInterval(60))
         return (capped.isEmpty ? [now] : capped, reload)
@@ -67,12 +91,15 @@ enum WidgetTimelinePlan {
 }
 
 struct HomeWidgetView: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var systemFamily
+    @Environment(\.forcedWidgetFamily) private var forcedFamily
+    private var family: WidgetFamily { forcedFamily ?? systemFamily }
     let entry: Entry
 
     private var earnings: Earnings { Earnings(s: entry.s) }
     private var phase: WorkPhase { earnings.phase(at: entry.date) }
-    private var amount: String { earnings.earnedToday(entry.date).money(entry.s.currencySymbol) }
+    private var amount: String { earnings.earnedToday(entry.date).money(entry.s.currencySymbol, digits: 3) }
+    private var perHour: String { earnings.perHour.money(entry.s.currencySymbol) }
     private var month: String { earnings.monthTotal(entry.date).money(entry.s.currencySymbol) }
     private var perSecond: String { earnings.perSecond.money(entry.s.currencySymbol, digits: 4) }
     private var perDay: String { earnings.perDay.money(entry.s.currencySymbol) }
@@ -97,16 +124,16 @@ struct HomeWidgetView: View {
         }
         .padding(padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .unredacted()
         .widgetURL(AppLink.salary)
         .accessibilityElement(children: .combine)
     }
 
     private var padding: CGFloat {
         switch family {
-        case .systemSmall: return 8
-        case .systemMedium: return 10
-        case .systemLarge, .systemExtraLarge: return 14
-        case .accessoryRectangular: return 2
+        case .systemSmall, .systemMedium: return 0
+        case .systemLarge, .systemExtraLarge: return 2
+        case .accessoryRectangular: return 0
         default: return 0
         }
     }
@@ -116,7 +143,7 @@ struct HomeWidgetView: View {
             HStack(alignment: .center, spacing: 4) {
                 VStack(alignment: .leading, spacing: 1) {
                     if entry.s.showsExampleSalary { exampleBadge }
-                    Text("main.today").font(.system(size: 10)).foregroundStyle(WidgetPalette.cream.opacity(0.78)).lineLimit(1)
+                    Text(l10n: "main.today").font(.system(size: 10)).foregroundStyle(WidgetPalette.cream.opacity(0.78)).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 piggyImage(26)
@@ -125,7 +152,7 @@ struct HomeWidgetView: View {
             progress
             status(compact: true).font(.system(size: 10))
             if entry.s.showsExampleSalary {
-                Text("widget.tapToSet").font(.system(size: 10, weight: .medium)).foregroundStyle(WidgetPalette.gold)
+                Text(l10n: "widget.tapToSet").font(.system(size: 10, weight: .medium)).foregroundStyle(WidgetPalette.gold)
                     .lineLimit(2).minimumScaleFactor(0.65)
             } else if earnings.monthTotal(entry.date) >= 0.01 || earnings.earnedToday(entry.date) >= 0.01 {
                 statLine("widget.month", month)
@@ -140,7 +167,7 @@ struct HomeWidgetView: View {
             piggyImage(96)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text("main.today").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.78))
+                    Text(l10n: "main.today").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.78))
                     if entry.s.showsExampleSalary { exampleBadge }
                 }
                 moneyText(amount, size: 28)
@@ -148,7 +175,7 @@ struct HomeWidgetView: View {
                 status(compact: false).font(.caption2)
                 HStack(spacing: 10) {
                     statLine("widget.month", month)
-                    statLine("main.perSecond", perSecond)
+                    statLine("widget.perHour", perHour)
                 }
                 if entry.s.showsExampleSalary { tapHint }
             }
@@ -158,14 +185,14 @@ struct HomeWidgetView: View {
     private var large: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("app.name").font(.headline).foregroundStyle(WidgetPalette.cream)
+                Text(l10n: "app.name").font(.headline).foregroundStyle(WidgetPalette.cream)
                 Spacer()
                 if entry.s.showsExampleSalary { exampleBadge }
             }
             HStack(alignment: .center, spacing: 12) {
                 piggyImage(118)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("main.today").font(.caption).foregroundStyle(WidgetPalette.cream.opacity(0.78))
+                    Text(l10n: "main.today").font(.caption).foregroundStyle(WidgetPalette.cream.opacity(0.78))
                     moneyText(amount, size: 34)
                     progress
                     status(compact: false).font(.caption)
@@ -173,7 +200,7 @@ struct HomeWidgetView: View {
             }
             HStack(spacing: 8) {
                 metric("widget.month", month)
-                metric("main.perSecond", perSecond)
+                metric("widget.perHour", perHour)
                 metric("main.perDay", perDay)
             }
             if entry.s.showsExampleSalary { tapHint }
@@ -185,17 +212,17 @@ struct HomeWidgetView: View {
             piggyImage(200)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("app.name").font(.title3.weight(.semibold)).foregroundStyle(WidgetPalette.cream)
+                    Text(l10n: "app.name").font(.title3.weight(.semibold)).foregroundStyle(WidgetPalette.cream)
                     if entry.s.showsExampleSalary { exampleBadge }
                     Spacer()
                 }
-                Text("main.today").font(.caption).foregroundStyle(WidgetPalette.cream.opacity(0.78))
+                Text(l10n: "main.today").font(.caption).foregroundStyle(WidgetPalette.cream.opacity(0.78))
                 moneyText(amount, size: 42)
                 progress
                 status(compact: false).font(.callout)
                 HStack(spacing: 12) {
                     metric("widget.month", month)
-                    metric("main.perSecond", perSecond)
+                    metric("widget.perHour", perHour)
                     metric("main.perDay", perDay)
                 }
                 if entry.s.showsExampleSalary { tapHint }
@@ -206,8 +233,8 @@ struct HomeWidgetView: View {
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Text("main.today").font(.caption2)
-                if entry.s.showsExampleSalary { Text("widget.example").font(.caption2.weight(.bold)) }
+                Text(l10n: "main.today").font(.caption2)
+                if entry.s.showsExampleSalary { Text(l10n: "widget.example").font(.caption2.weight(.bold)) }
             }
             Text(amount).font(.headline.monospacedDigit()).minimumScaleFactor(0.6).lineLimit(1).widgetAccentable()
             status(compact: true).font(.caption2)
@@ -244,8 +271,8 @@ struct HomeWidgetView: View {
 
     private var inline: some View {
         HStack(spacing: 4) {
-            if entry.s.showsExampleSalary { Text("widget.example") }
-            Text("main.today")
+            if entry.s.showsExampleSalary { Text(l10n: "widget.example") }
+            Text(l10n: "main.today")
             Text(amount).monospacedDigit().widgetAccentable()
             status(compact: true)
         }
@@ -264,7 +291,7 @@ struct HomeWidgetView: View {
     }
 
     private func piggyImage(_ side: CGFloat) -> some View {
-        Image(piggy)
+        Image(piggy, bundle: WidgetCopy.bundle)
             .resizable()
             .scaledToFill()
             .frame(width: side, height: side)
@@ -289,10 +316,8 @@ struct HomeWidgetView: View {
             Capsule()
                 .fill(Color.white.opacity(0.14))
                 .overlay(alignment: .leading) {
-                    GeometryReader { geo in
-                        Capsule().fill(WidgetPalette.gold)
-                            .frame(width: geo.size.width * min(1, max(0, fill)))
-                    }
+                    Capsule().fill(WidgetPalette.gold)
+                        .scaleEffect(x: min(1, max(0.04, fill)), y: 1, anchor: .leading)
                 }
                 .frame(height: 6)
                 .clipped()
@@ -334,9 +359,9 @@ struct HomeWidgetView: View {
         }
     }
 
-    private func countdown(_ key: LocalizedStringKey, until end: Date) -> some View {
+    private func countdown(_ key: String, until end: Date) -> some View {
         HStack(spacing: 3) {
-            Text(key)
+            Text(l10n: key)
             if entry.date < end {
                 Text(timerInterval: entry.date...end, countsDown: true)
                     .monospacedDigit()
@@ -345,21 +370,21 @@ struct HomeWidgetView: View {
         }
     }
 
-    @ViewBuilder private func labeledNext(_ key: LocalizedStringKey, next: Date?, compact: Bool) -> some View {
+    @ViewBuilder private func labeledNext(_ key: String, next: Date?, compact: Bool) -> some View {
         if let next, !compact {
             HStack(spacing: 3) {
-                Text(key)
-                Text("widget.nextShift")
+                Text(l10n: key)
+                Text(l10n: "widget.nextShift")
                 Text(next, format: .dateTime.weekday(.abbreviated).hour().minute())
                     .monospacedDigit()
             }
         } else {
-            Text(key)
+            Text(l10n: key)
         }
     }
 
     private var exampleBadge: some View {
-        Text("widget.example")
+        Text(l10n: "widget.example")
             .font(.system(size: 9, weight: .bold))
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -368,16 +393,16 @@ struct HomeWidgetView: View {
     }
 
     private var tapHint: some View {
-        Text("widget.tapToSet")
+        Text(l10n: "widget.tapToSet")
             .font(.caption2.weight(.medium))
             .foregroundStyle(WidgetPalette.gold)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
     }
 
-    private func statLine(_ key: LocalizedStringKey, _ value: String) -> some View {
+    private func statLine(_ key: String, _ value: String) -> some View {
         HStack(spacing: 3) {
-            Text(key).foregroundStyle(onHomeScreen ? AnyShapeStyle(WidgetPalette.cream.opacity(0.7)) : AnyShapeStyle(.secondary))
+            Text(l10n: key).foregroundStyle(onHomeScreen ? AnyShapeStyle(WidgetPalette.cream.opacity(0.7)) : AnyShapeStyle(.secondary))
             Text(value).monospacedDigit().foregroundStyle(onHomeScreen ? AnyShapeStyle(WidgetPalette.cream) : AnyShapeStyle(.primary)).widgetAccentable()
         }
         .font(.caption2)
@@ -385,9 +410,9 @@ struct HomeWidgetView: View {
         .minimumScaleFactor(0.6)
     }
 
-    private func metric(_ key: LocalizedStringKey, _ value: String) -> some View {
+    private func metric(_ key: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(key).font(.system(size: 10)).foregroundStyle(WidgetPalette.cream.opacity(0.65))
+            Text(l10n: key).font(.system(size: 10)).foregroundStyle(WidgetPalette.cream.opacity(0.65))
             Text(value).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(WidgetPalette.gold)
                 .lineLimit(1).minimumScaleFactor(0.5).widgetAccentable()
         }
@@ -399,7 +424,9 @@ struct HomeWidgetView: View {
 }
 
 struct WidgetChrome: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var systemFamily
+    @Environment(\.forcedWidgetFamily) private var forcedFamily
+    private var family: WidgetFamily { forcedFamily ?? systemFamily }
     var body: some View {
         switch family {
         case .accessoryInline, .accessoryCircular, .accessoryRectangular:
@@ -416,13 +443,12 @@ struct EarningsWidget: Widget {
             HomeWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetChrome() }
         }
-        .configurationDisplayName(Text("app.name"))
-        .description(Text("widget.description"))
+        .configurationDisplayName(Text(l10n: "app.name"))
+        .description(Text(l10n: "widget.description"))
         .supportedFamilies([
             .systemSmall, .systemMedium, .systemLarge, .systemExtraLarge,
             .accessoryRectangular, .accessoryCircular, .accessoryInline
         ])
-        .contentMarginsDisabled()
     }
 }
 
@@ -453,11 +479,11 @@ struct EarningsActivityBanner: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image("pig_half").resizable().scaledToFill()
+            Image("pig_half", bundle: WidgetCopy.bundle).resizable().scaledToFill()
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text("main.today").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.75))
+                Text(l10n: "main.today").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.75))
                 TickingAmount(state: state, symbol: symbol, font: .title2.bold())
                 activityStatus.font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.9))
             }
@@ -470,18 +496,18 @@ struct EarningsActivityBanner: View {
 
     @ViewBuilder private var activityStatus: some View {
         if state.perSecond > 0, Date() < state.endDate {
-            Text("widget.offIn")
+            Text(l10n: "widget.offIn")
         } else if state.perSecond > 0 {
-            Text("main.overtime")
+            Text(l10n: "main.overtime")
         } else {
-            Text("widget.done")
+            Text(l10n: "widget.done")
         }
     }
 
     @ViewBuilder private var activityStatusBlock: some View {
         if state.perSecond > 0, Date() < state.endDate {
             VStack(alignment: .trailing, spacing: 2) {
-                Text("widget.offIn").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.75))
+                Text(l10n: "widget.offIn").font(.caption2).foregroundStyle(WidgetPalette.cream.opacity(0.75))
                 Text(timerInterval: Date()...state.endDate, countsDown: true)
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(WidgetPalette.cream)
@@ -489,7 +515,7 @@ struct EarningsActivityBanner: View {
             }
         } else {
             Group {
-                if state.perSecond > 0 { Text("main.overtime") } else { Text("widget.done") }
+                if state.perSecond > 0 { Text(l10n: "main.overtime") } else { Text(l10n: "widget.done") }
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(WidgetPalette.cream)
@@ -508,7 +534,7 @@ struct EarningsLiveActivity: Widget {
         } dynamicIsland: { ctx in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image("pig_half").resizable().scaledToFit().frame(width: 52, height: 52)
+                    Image("pig_half", bundle: WidgetCopy.bundle).resizable().scaledToFit().frame(width: 52, height: 52)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -516,20 +542,20 @@ struct EarningsLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
-                        Text("main.today").font(.caption2)
+                        Text(l10n: "main.today").font(.caption2)
                         Spacer()
                         if ctx.state.perSecond > 0, Date() < ctx.state.endDate {
-                            Text("widget.offIn")
+                            Text(l10n: "widget.offIn")
                             Text(timerInterval: Date()...ctx.state.endDate, countsDown: true).monospacedDigit()
                         } else {
-                            if ctx.state.perSecond > 0 { Text("main.overtime") } else { Text("widget.done") }
+                            if ctx.state.perSecond > 0 { Text(l10n: "main.overtime") } else { Text(l10n: "widget.done") }
                         }
                     }
                     .font(.caption)
                     .foregroundStyle(WidgetPalette.cream)
                 }
             } compactLeading: {
-                Image("pig_half").resizable().scaledToFill().frame(width: 18, height: 18).clipShape(Circle())
+                Image("pig_half", bundle: WidgetCopy.bundle).resizable().scaledToFill().frame(width: 18, height: 18).clipShape(Circle())
             } compactTrailing: {
                 TickingAmount(state: ctx.state, symbol: ctx.attributes.currencySymbol, font: .caption.bold())
             } minimal: {
@@ -540,66 +566,58 @@ struct EarningsLiveActivity: Widget {
     }
 }
 
+#if !WIDGET_SNAPSHOT
 @main
 struct WidgetsBundle: WidgetBundle {
     var body: some Widget { EarningsWidget(); EarningsLiveActivity() }
 }
+#endif
 
 enum WidgetSamples {
     static func clock(_ hour: Int, _ minute: Int, on base: Date) -> Date {
         Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: base) ?? base
     }
 
-    static var afternoon: Date { WorkSettings.representativeWorkDate(for: WorkSettings.example()) }
-
-    static var exampleEarning: Entry {
-        let s = WorkSettings.example()
-        return Entry(date: WorkSettings.representativeWorkDate(for: s), s: s)
-    }
-
-    static var configuredEarning: Entry {
+    static func office() -> WorkSettings {
         var s = WorkSettings.example()
         s.onboarded = true
         s.monthlySalary = 20_000
         s.currencySymbol = "¥"
+        s.workDays = [2, 3, 4, 5, 6]
+        s.startMinutes = 9 * 60
+        s.endMinutes = 18 * 60
+        s.lunchBreakMinutes = 60
+        return s
+    }
+
+    static var afternoon: Date { WorkSettings.representativeWorkDate(for: office()) }
+
+    static var exampleEarning: Entry {
+        let s = WorkSettings.example()
+        return Entry(date: .now, s: s)
+    }
+
+    static var configuredEarning: Entry {
+        let s = office()
         return Entry(date: WorkSettings.representativeWorkDate(for: s), s: s)
     }
 
-    static var beforeShift: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(7, 40, on: afternoon), s: s)
-    }
-
-    static var lunch: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(12, 30, on: afternoon), s: s)
-    }
-
-    static var afterShift: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
-        return Entry(date: clock(19, 10, on: afternoon), s: s)
-    }
+    static var beforeShift: Entry { Entry(date: clock(7, 40, on: afternoon), s: office()) }
+    static var lunch: Entry { Entry(date: clock(12, 30, on: afternoon), s: office()) }
+    static var afterShift: Entry { Entry(date: clock(19, 10, on: afternoon), s: office()) }
 
     static var dayOff: Entry {
-        var s = WorkSettings.example()
-        s.onboarded = true
-        s.currencySymbol = "¥"
         let cal = Calendar.current
         var day = cal.startOfDay(for: afternoon)
         for _ in 0..<8 {
             if cal.component(.weekday, from: day) == 7 { break }
             day = cal.date(byAdding: .day, value: 1, to: day) ?? day
         }
-        return Entry(date: clock(11, 0, on: day), s: s)
+        return Entry(date: clock(11, 0, on: day), s: office())
     }
-
 }
+
+#if !WIDGET_SNAPSHOT
 
 #Preview("Small", as: .systemSmall) {
     EarningsWidget()
@@ -683,3 +701,4 @@ enum WidgetSamples {
     .padding()
     .background(WidgetPalette.bgBottom)
 }
+#endif

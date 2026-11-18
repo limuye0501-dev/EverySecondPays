@@ -28,7 +28,8 @@
 "widget.offIn" = "距下班";
 "widget.description" = "今天赚了多少、距下班还有多久、本月累计。未设置月薪时显示标明的示例。";
 "widget.example" = "示例";
-"widget.tapToSet" = "轻点设置月薪";
+"widget.tapToSet" = "示例 · 轻点设置月薪";
+"widget.perHour" = "时薪";
 "widget.month" = "本月";
 "widget.lunch" = "午休中";
 "widget.startsAt" = "距上班";
