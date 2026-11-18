@@ -5,6 +5,7 @@ import WidgetKit
 
 /// Renders every widget family the way a fresh iPad/iPhone install and a configured salary look.
 /// ImageRenderer output is saved under the test container's Documents/widget-snapshots.
+@MainActor
 final class WidgetRenderTests: XCTestCase {
     func testEmptyStoreUsesSampleAndTimelineTicks() {
         AppGroup.defaults.removeObject(forKey: WorkSettings.key)
