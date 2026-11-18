@@ -7,6 +7,17 @@ struct Entry: TimelineEntry {
     let s: WorkSettings
 }
 
+private struct ForcedWidgetFamilyKey: EnvironmentKey {
+    static let defaultValue: WidgetFamily? = nil
+}
+extension EnvironmentValues {
+    /// Snapshot tests set this. WidgetKit's own `widgetFamily` is read-only outside a widget.
+    var forcedWidgetFamily: WidgetFamily? {
+        get { self[ForcedWidgetFamilyKey.self] }
+        set { self[ForcedWidgetFamilyKey.self] = newValue }
+    }
+}
+
 enum WidgetPalette {
     static let gold = Color(red: 0.95, green: 0.84, blue: 0.56)
     static let cream = Color(red: 0.984, green: 0.953, blue: 0.882)
@@ -69,7 +80,9 @@ enum WidgetTimelinePlan {
 }
 
 struct HomeWidgetView: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var systemFamily
+    @Environment(\.forcedWidgetFamily) private var forcedFamily
+    private var family: WidgetFamily { forcedFamily ?? systemFamily }
     let entry: Entry
 
     private var earnings: Earnings { Earnings(s: entry.s) }
@@ -400,7 +413,9 @@ struct HomeWidgetView: View {
 }
 
 struct WidgetChrome: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var systemFamily
+    @Environment(\.forcedWidgetFamily) private var forcedFamily
+    private var family: WidgetFamily { forcedFamily ?? systemFamily }
     var body: some View {
         switch family {
         case .accessoryInline, .accessoryCircular, .accessoryRectangular:

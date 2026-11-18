@@ -74,12 +74,12 @@ final class WidgetRenderTests: XCTestCase {
 
     private func render(entry: Entry, family: WidgetFamily, size: CGSize) throws -> UIImage {
         let view = HomeWidgetView(entry: entry)
-            .environment(\.widgetFamily, family)
+            .environment(\.forcedWidgetFamily, family)
             .environment(\.colorScheme, .dark)
             .frame(width: size.width, height: size.height)
             .background {
                 if family == .systemSmall || family == .systemMedium || family == .systemLarge || family == .systemExtraLarge {
-                    WidgetChrome().environment(\.widgetFamily, family)
+                    WidgetChrome().environment(\.forcedWidgetFamily, family)
                 } else {
                     Color(white: 0.12)
                 }
@@ -89,9 +89,9 @@ final class WidgetRenderTests: XCTestCase {
         renderer.proposedSize = ProposedViewSize(size)
         if let image = renderer.uiImage, image.size.width > 1 { return image }
         let hosting = UIHostingController(rootView: view)
-        hosting.overrideUserInterfaceStyle = .dark
+        hosting.overrideUserInterfaceStyle = UIUserInterfaceStyle.dark
         hosting.view.bounds = CGRect(origin: .zero, size: size)
-        hosting.view.backgroundColor = .clear
+        hosting.view.backgroundColor = UIColor.clear
         let window = UIWindow(frame: hosting.view.bounds)
         window.rootViewController = hosting
         window.makeKeyAndVisible()
