@@ -8,6 +8,14 @@ final class MarketingCaptureTests: XCTestCase {
         continueAfterFailure = true
     }
 
+    func testMainEnglish() {
+        holdMain(lang: "en", loc: "en_US", seconds: 38, name: "main-en")
+    }
+
+    func testMainChinese() {
+        holdMain(lang: "zh-Hans", loc: "zh_CN", seconds: 28, name: "main-zh")
+    }
+
     func testSettingsFlow() {
         let app = openDemo()
         let gear = app.buttons["Settings"]
@@ -103,10 +111,27 @@ final class MarketingCaptureTests: XCTestCase {
         signal("widget-done")
     }
 
+    private func holdMain(lang: String, loc: String, seconds: TimeInterval, name: String) {
+        let app = openDemo(lang: lang, loc: loc)
+        // English label is Share; Simplified Chinese is 分享.
+        let deadline = Date().addingTimeInterval(25)
+        while Date() < deadline {
+            if app.buttons["Share"].exists || app.buttons["分享"].exists { break }
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+        guard app.buttons["Share"].exists || app.buttons["分享"].exists else {
+            logTree(app, "\(name)-missing")
+            return
+        }
+        signal("\(name)-ready")
+        Thread.sleep(forTimeInterval: seconds)
+        signal("\(name)-done")
+    }
+
     @discardableResult
-    private func openDemo() -> XCUIApplication {
+    private func openDemo(lang: String = "en", loc: String = "en_US") -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-ESPDemo", "main", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-ESPDemo", "main", "-AppleLanguages", "(\(lang))", "-AppleLocale", loc]
         app.launch()
         dismissSystemAlerts()
         return app

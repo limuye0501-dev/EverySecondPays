@@ -14,6 +14,8 @@ static void ESPInstallQuiescenceBypass(void) {
     const char *sels[] = {
         "waitForQuiescenceIncludingAnimationsIdle:",
         "waitForQuiescenceIncludingAnimationsIdle:isPreEvent:",
+        "waitForQuiescenceIncludingAnimationsIdle:usingActivity:isPreEvent:",
+        "waitForQuiescenceOnAllForegroundApplicationsAsPreEvent:",
         "_waitForQuiescence",
     };
     int replaced = 0;
