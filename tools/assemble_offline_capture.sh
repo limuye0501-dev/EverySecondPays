@@ -96,21 +96,25 @@ encode_clip() {
   echo "$out frames=$nb duration=$dur bytes=$bytes"
   if [ "$nb" -ne "$frames" ]; then echo "Encoded frame count mismatch"; exit 1; fi
   cp "$dir/landings.json" "$FINAL/${name}-landings.json"
-  # Consecutive frames in the coin section must differ. A held slideshow fails this.
+  # The first coin is in the air across this window. One held pair is allowed;
+  # a run of identical frames means the fall was not recorded.
   python3 - "$dir" "$name" << 'PY'
 import subprocess, sys
 directory, name = sys.argv[1], sys.argv[2]
-# Frame 40 and 41 are during the first coin's fall on main clips.
-# The settings clip's coins start after the 8s lead, so use a later pair.
-pair = (280, 281) if name.startswith("03") else (24, 25)
+start, end = (250, 268) if name.startswith("03") else (10, 28)
 def rgb(n):
     path = f"{directory}/frame-{n:05d}.jpg"
     return subprocess.check_output(["ffmpeg","-i",path,"-f","rawvideo","-pix_fmt","rgb24","-"], stderr=subprocess.DEVNULL)
-a, b = rgb(pair[0]), rgb(pair[1])
-diff = sum(abs(x - y) for x, y in zip(a, b))
-print(f"motion {name} frames {pair} absdiff {diff}")
-if diff < 1000:
-    raise SystemExit(f"{name} frames {pair} are effectively identical")
+diffs = []
+prev = rgb(start)
+for n in range(start + 1, end):
+    cur = rgb(n)
+    diffs.append(sum(abs(a - b) for a, b in zip(prev, cur)))
+    prev = cur
+moved = sum(1 for d in diffs if d > 2500)
+print(f"motion {name} frames {start}-{end - 1} moved {moved}/{len(diffs)} best {max(diffs)}")
+if moved < len(diffs) // 2:
+    raise SystemExit(f"{name} fall is not continuous")
 PY
 }
 
