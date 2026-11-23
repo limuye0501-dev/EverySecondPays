@@ -248,6 +248,8 @@ private final class CoinEngine {
     private var currentFrame = 0
     private var simTime = 10_000.0
     private var lastWall = 0.0
+    /// Extra scale so a coin's fall lasts about 0.6 s even if the world speed is not linear.
+    private var bias = 1.0
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -272,35 +274,63 @@ private final class CoinEngine {
     func frame(at index: Int, mainStart: Int) throws -> UIImage {
         currentFrame = index
         if !primed {
-            lastWall = CACurrentMediaTime()
-            step(simDt: dt)
+            tuneFall()
             primed = true
         }
         guard index >= mainStart else {
-            // Keep the wall clock current while the settings screen is on screen.
             lastWall = CACurrentMediaTime()
             return try draw(flip: flip)
         }
         let into = index - mainStart
         if into % OfflineCapture.fps == 8 { scene.drop() }
-        // Two substeps. Each one is scaled so the wall time since the last
-        // update becomes exactly half a frame, however slow the renderer is.
-        step(simDt: dt / 2)
-        step(simDt: dt / 2)
+        step(simDt: dt, bias: bias)
         return try draw(flip: flip)
     }
 
-    /// SpriteKit advances physics by wall-clock time, not by the `atTime` we pass.
-    /// Scale the world so that interval always equals `simDt`.
-    private func step(simDt: Double) {
+    /// Find a speed scale that lets one coin stay in the air for about 18 frames.
+    private func tuneFall() {
+        let saved = onLand
+        var trial = 1.0
+        for _ in 0..<4 {
+            let delay = sampleFall(bias: trial)
+            print(String(format: "ESP_PROBE delay %d bias %.3f", delay, trial))
+            if (14...26).contains(delay) { break }
+            let next = trial * 18.0 / Double(max(delay, 1))
+            if abs(next - trial) < 0.08 { break }
+            trial = min(40, max(0.05, next))
+        }
+        bias = trial
+        onLand = saved
+        scene.resetForOfflineCapture()
+        lastWall = CACurrentMediaTime()
+        print(String(format: "ESP_BIAS %.3f", bias))
+    }
+
+    private func sampleFall(bias: Double) -> Int {
+        scene.resetForOfflineCapture()
+        lastWall = CACurrentMediaTime()
+        var landedAt: Int?
+        onLand = { landedAt = $0 }
+        for i in 0..<48 {
+            currentFrame = i
+            if i == 6 { scene.drop() }
+            step(simDt: dt, bias: bias)
+            if landedAt != nil { break }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return (landedAt ?? 90) - 6
+    }
+
+    /// The renderer integrates wall-clock time. `scene.speed` turns that gap into `simDt`.
+    private func step(simDt: Double, bias: Double) {
         let wall = CACurrentMediaTime()
         let elapsed = lastWall == 0 ? simDt : max(wall - lastWall, 1.0 / 500)
         lastWall = wall
         simTime += simDt
         PhysicsTime.override = simTime
         scene.isPaused = false
-        scene.speed = 1
-        scene.physicsWorld.speed = CGFloat(simDt / elapsed)
+        scene.physicsWorld.speed = 1
+        scene.speed = CGFloat(simDt / elapsed * bias)
         renderer.update(atTime: wall)
     }
 

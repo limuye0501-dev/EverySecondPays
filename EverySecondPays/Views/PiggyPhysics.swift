@@ -251,6 +251,17 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         removeCoinNodes()
     }
 
+    #if DEBUG
+    /// Drops any coin left over from an offline-capture timing probe.
+    func resetForOfflineCapture() {
+        clearCoins()
+        lastSpawn = 0
+        pending = 0
+        speed = 1
+        physicsWorld.speed = 1
+    }
+    #endif
+
     private func removeCoinNodes() {
         settleQueue.removeAll()
         crop.children.forEach {
