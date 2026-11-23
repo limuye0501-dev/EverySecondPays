@@ -30,6 +30,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: EverySecondPays/App.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
+        Debug: { ENABLE_TESTABILITY: YES }
         Release: { PROVISIONING_PROFILE_SPECIFIER: $(APP_PROFILE) }
     dependencies:
       - target: EverySecondPaysWidget
@@ -91,4 +92,21 @@ targets:
       gatherCoverageData: false
       testTargets:
         - name: MarketingCapture
+          parallelizable: false
+  OfflineCaptureTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [OfflineCaptureTests]
+    dependencies:
+      - target: EverySecondPays
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.limuye.everysecondpays.offlinecapture
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      gatherCoverageData: false
+      testTargets:
+        - name: OfflineCaptureTests
           parallelizable: false

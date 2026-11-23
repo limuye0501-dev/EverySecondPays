@@ -73,6 +73,32 @@ final class WidgetRenderTests: XCTestCase {
         }
     }
 
+    func testMarketingHomeWidgets() throws {
+        var s = WorkSettings()
+        s.onboarded = true
+        s.monthlySalary = 5_000
+        s.workDays = [2, 3, 4, 5, 6]
+        s.startMinutes = 9 * 60
+        s.endMinutes = 18 * 60
+        s.lunchBreakMinutes = 60
+        s.currencySymbol = "$"
+        s.skin = "glass"
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = Calendar.current.timeZone
+        let date = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 11, day: 18, hour: 14, minute: 30)))
+        let entry = Entry(date: date, s: s)
+        XCTAssertFalse(s.showsExampleSalary)
+        XCTAssertGreaterThan(Earnings(s: s).earnedToday(date), 1)
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("esp-marketing", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let small = try render(entry: entry, family: .systemSmall, size: CGSize(width: 170, height: 170))
+        let medium = try render(entry: entry, family: .systemMedium, size: CGSize(width: 364, height: 170))
+        try XCTUnwrap(small.pngData()).write(to: dir.appendingPathComponent("widget-en-small.png"))
+        try XCTUnwrap(medium.pngData()).write(to: dir.appendingPathComponent("widget-en-medium.png"))
+        print("ESP_WIDGET_DIR \(dir.path)")
+    }
+
     private func render(entry: Entry, family: WidgetFamily, size: CGSize) throws -> UIImage {
         let view = HomeWidgetView(entry: entry)
             .environment(\.forcedWidgetFamily, family)
