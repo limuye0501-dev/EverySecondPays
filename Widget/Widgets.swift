@@ -29,6 +29,18 @@ extension EnvironmentValues {
     }
 }
 
+private struct StaticCountdownKey: EnvironmentKey {
+    static let defaultValue = false
+}
+extension EnvironmentValues {
+    /// Still captures set this. Live widgets leave it false and keep the ticking timer,
+    /// which ImageRenderer cannot draw.
+    var espStaticCountdown: Bool {
+        get { self[StaticCountdownKey.self] }
+        set { self[StaticCountdownKey.self] = newValue }
+    }
+}
+
 enum WidgetPalette {
     static let gold = Color(red: 0.95, green: 0.84, blue: 0.56)
     static let cream = Color(red: 0.984, green: 0.953, blue: 0.882)
@@ -93,6 +105,7 @@ enum WidgetTimelinePlan {
 struct HomeWidgetView: View {
     @Environment(\.widgetFamily) private var systemFamily
     @Environment(\.forcedWidgetFamily) private var forcedFamily
+    @Environment(\.espStaticCountdown) private var staticCountdown
     private var family: WidgetFamily { forcedFamily ?? systemFamily }
     let entry: Entry
 
@@ -363,11 +376,27 @@ struct HomeWidgetView: View {
         HStack(spacing: 3) {
             Text(l10n: key)
             if entry.date < end {
-                Text(timerInterval: entry.date...end, countsDown: true)
-                    .monospacedDigit()
-                    .widgetAccentable()
+                if staticCountdown {
+                    Text(Self.remaining(from: entry.date, to: end))
+                        .monospacedDigit()
+                        .widgetAccentable()
+                } else {
+                    Text(timerInterval: entry.date...end, countsDown: true)
+                        .monospacedDigit()
+                        .widgetAccentable()
+                }
             }
         }
+    }
+
+    /// Same fields a countdown timer shows, frozen at the entry date.
+    static func remaining(from start: Date, to end: Date) -> String {
+        let secs = max(0, Int(end.timeIntervalSince(start).rounded()))
+        let hours = secs / 3600
+        let minutes = (secs % 3600) / 60
+        let seconds = secs % 60
+        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     @ViewBuilder private func labeledNext(_ key: String, next: Date?, compact: Bool) -> some View {

@@ -130,6 +130,14 @@ enum OfflineCapture {
         guard lands.items.count >= Int(clip.seconds - clip.settingsLead) - 2 else {
             throw CaptureError.fewLandings(lands.items.count)
         }
+        // A coin that covers the chute in one step means the physics clock jumped.
+        let delays = lands.items.map { landing -> Int in
+            let drop = mainStart + 8 + (landing.coin - 1) * fps
+            return landing.frame - drop
+        }.sorted()
+        let median = delays[delays.count / 2]
+        print("ESP_FALL_MEDIAN \(clip.name) \(median)")
+        guard median >= 10 else { throw CaptureError.fastFall(median) }
     }
 
     @MainActor
@@ -147,8 +155,7 @@ enum OfflineCapture {
             df.setLocalizedDateFormatFromTemplate("yMMMMdEEEE")
             let image = try swiftImage(CaptureShareCard(
                 headline: strings["share.headline"], amount: earned, symbol: symbol,
-                date: df.string(from: clock), tagline: strings["share.tagline"],
-                watermark: strings["app.name"]
+                date: df.string(from: clock), tagline: strings["share.tagline"]
             ), size: CGSize(width: 360, height: 640))
             guard let png = image.pngData() else { throw CaptureError.encode }
             try png.write(to: root.appendingPathComponent(name))
@@ -235,9 +242,12 @@ private final class CoinEngine {
     private let height: Int
     private let dt = 1.0 / Double(OfflineCapture.fps)
     private let t0 = 10_000.0
-    private var flip = false
+    // Metal's texture read is bottom-up relative to the scene, which otherwise
+    // draws the piggy standing on its head.
+    private var flip = true
     private var primed = false
     private var currentFrame = 0
+    private var simTime = 10_000.0
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -249,6 +259,7 @@ private final class CoinEngine {
         height = Int((1020 * (1 + PiggyBankScene.sky)).rounded())
         scene = PiggyBankScene(size: CGSize(width: width, height: height))
         scene.scaleMode = .resizeFill
+        scene.backgroundColor = .clear
         scene.apply(skin: .glass)
         renderer = SKRenderer(device: device)
         renderer.scene = scene
@@ -261,15 +272,23 @@ private final class CoinEngine {
     func frame(at index: Int, mainStart: Int) throws -> UIImage {
         currentFrame = index
         if !primed {
-            step(to: t0 - dt)
-            if let probe = try? draw(flip: false), !photoIsAtBottom(probe) { flip = true }
+            // Two updates at the same time give the world a zero delta to start from.
+            step(to: t0)
+            step(to: t0)
+            simTime = t0
             primed = true
         }
-        let time = t0 + Double(max(0, index - mainStart)) * dt
         if index >= mainStart {
             let into = index - mainStart
-            if into % OfflineCapture.fps == 8 { scene.drop() }
-            step(to: time)
+            if into % OfflineCapture.fps == 8 {
+                scene.drop()
+                // The first integration after a body is added otherwise catches up
+                // from time zero and lands the coin in a single frame.
+                absorbCatchUp()
+            }
+            simTime += dt
+            step(to: simTime - dt / 2)
+            step(to: simTime)
         }
         return try draw(flip: flip)
     }
@@ -279,6 +298,16 @@ private final class CoinEngine {
         scene.isPaused = false
         scene.physicsWorld.speed = 1
         renderer.update(atTime: time)
+    }
+
+    /// Advance the renderer clock without moving bodies, so the next real step is one frame.
+    private func absorbCatchUp() {
+        let sceneSpeed = scene.speed
+        scene.speed = 0
+        scene.physicsWorld.speed = 0
+        renderer.update(atTime: PhysicsTime.override ?? simTime)
+        scene.speed = sceneSpeed
+        scene.physicsWorld.speed = 1
     }
 
     private func draw(flip: Bool) throws -> UIImage {
@@ -310,40 +339,6 @@ private final class CoinEngine {
                 provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
         else { throw CaptureError.encode }
         return UIImage(cgImage: cg, scale: OfflineCapture.scale, orientation: .up)
-    }
-
-    /// The piggy photo sits on the bottom of the scene. A flipped read puts it on top.
-    private func photoIsAtBottom(_ image: UIImage) -> Bool {
-        guard let cg = image.cgImage else { return true }
-        let h = cg.height
-        func luma(_ y: Int) -> Double {
-            // Sample via the already-oriented image by redrawing is expensive; use pixel bytes.
-            return 0
-        }
-        _ = luma
-        // Re-read is unnecessary: compare the CGImage by drawing two strips.
-        let strip = 24
-        let top = averageLuma(cg, y: 0, height: strip)
-        let bottom = averageLuma(cg, y: h - strip, height: strip)
-        return bottom > top + 8
-    }
-
-    private func averageLuma(_ image: CGImage, y: Int, height: Int) -> Double {
-        let w = image.width
-        var pixels = [UInt8](repeating: 0, count: w * height * 4)
-        guard let ctx = CGContext(
-            data: &pixels, width: w, height: height, bitsPerComponent: 8, bytesPerRow: w * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return 0 }
-        ctx.draw(image, in: CGRect(x: 0, y: -CGFloat(y), width: CGFloat(w), height: CGFloat(image.height)))
-        var sum = 0.0
-        var i = 0
-        while i < pixels.count {
-            sum += Double(pixels[i]) + Double(pixels[i + 1]) + Double(pixels[i + 2])
-            i += 4
-        }
-        return sum / Double(pixels.count / 4)
     }
 
     private static func flipped(_ bytes: [UInt8], width: Int, height: Int) -> [UInt8] {
@@ -496,16 +491,17 @@ private struct CaptureSettingsView: View {
                     }
                 }
                 section(schedule) {
-                    HStack {
-                        ForEach(Array(days.enumerated()), id: \.offset) { _, day in
-                            Text(String(day.prefix(3)))
-                                .font(.caption2.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Color(hex: 0xE9C46A)))
-                                .foregroundStyle(.black)
-                        }
+                HStack {
+                    ForEach(Array(days.enumerated()), id: \.offset) { index, day in
+                        let on = (2...6).contains(index + 1)
+                        Text(String(day.prefix(3)))
+                            .font(.caption2.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(on ? Color(hex: 0xE9C46A) : Color.white.opacity(0.12)))
+                            .foregroundStyle(on ? Color.black : Color.white.opacity(0.85))
                     }
+                }
                     time(startLabel, start)
                     time(endLabel, end)
                 }
@@ -561,7 +557,6 @@ private struct CaptureShareCard: View {
     var symbol: String
     var date: String
     var tagline: String
-    var watermark: String
 
     var body: some View {
         ZStack {
@@ -584,11 +579,6 @@ private struct CaptureShareCard: View {
                     .padding(.bottom, 36)
             }.padding(.horizontal, 24)
         }
-        .overlay(alignment: .bottomTrailing) {
-            Label(watermark, systemImage: "bitcoinsign.circle.fill").font(.caption.bold())
-                .foregroundStyle(Palette.cream.opacity(0.85)).padding(10)
-                .background(Capsule().fill(.black.opacity(0.35))).padding(14)
-        }
     }
 }
 
@@ -597,7 +587,7 @@ private final class LandingBox {
 }
 
 private enum CaptureError: Error {
-    case noMetal, encode, blank, fewLandings(Int)
+    case noMetal, encode, blank, fewLandings(Int), fastFall(Int)
 }
 
 private extension JSONEncoder {
