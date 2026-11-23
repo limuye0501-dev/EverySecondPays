@@ -296,11 +296,10 @@ private final class CoinEngine {
             let delay = sampleFall(bias: trial)
             print(String(format: "ESP_PROBE delay %d bias %.3f", delay, trial))
             if (14...26).contains(delay) { break }
-            // No contact at all means this trial did not run the solver. Keep the last good scale.
-            if delay > 40 { break }
-            let next = trial * 18.0 / Double(max(delay, 1))
-            if abs(next - trial) < 0.08 { break }
-            trial = min(12, max(0.25, next))
+            // Higher speed lands sooner, so a short fall means the next trial must be slower.
+            let next = min(8, max(0.02, trial * Double(max(delay, 1)) / 18.0))
+            if abs(next - trial) < 0.005 { break }
+            trial = next
         }
         bias = trial
         onLand = saved
