@@ -123,12 +123,26 @@ run_flow_once() {
   local test="$1" ready="$2" keep="$3" dest="$4"
   local log="$ROOT/footage/uitest-${test}.log"
   local marks="$ROOT/footage/marks-${test}.txt"
-  local frames="$RAW/${test}-frames"
-  rm -rf "$frames" "$log" "$marks" "$dest"
-  mkdir -p "$frames"
+  local raw="$RAW/${test}.mp4"
+  local reclog="$ROOT/footage/rec-${test}.log"
+  rm -f "$raw" "$log" "$marks" "$reclog" "$dest"
   apply_chrome
   focus_simulator
-  echo "Starting $test, capture ${keep}s after $ready"
+  echo "Recording $test from $ready for ${keep}s"
+  xcrun simctl io "$BASE_UDID" recordVideo --codec=h264 --force --mask=ignored "$raw" >"$reclog" 2>&1 &
+  local rpid=$!
+  local i started=0
+  for i in $(seq 1 20); do
+    if grep -q "Recording started" "$reclog" 2>/dev/null; then started=1; break; fi
+    sleep 0.5
+  done
+  if [ "$started" -ne 1 ]; then
+    echo "recordVideo did not start"; cat "$reclog" || true
+    kill -INT "$rpid" 2>/dev/null || true
+    return 1
+  fi
+  local rec_start
+  rec_start="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
   python3 "$ROOT/tools/ptylog.py" "$log" "$marks" \
     xcodebuild test-without-building \
     -project "$ROOT/EverySecondPays.xcodeproj" \
@@ -143,68 +157,67 @@ run_flow_once() {
     -maximum-test-execution-time-allowance 300 \
     CODE_SIGNING_ALLOWED=NO &
   local xpid=$!
-  local i found=0
+  local found=0
   for i in $(seq 1 300); do
     if [ -f "$marks" ] && awk -v n="$ready" '$1==n {found=1} END{exit !found}' "$marks"; then
       found=1
       break
     fi
     if ! kill -0 "$xpid" 2>/dev/null; then
-      echo "Test process ended before $ready"
+      echo "Test ended before $ready"
       break
     fi
     sleep 1
   done
   if [ "$found" -ne 1 ]; then
     echo "Missing signal $ready"
-    tail -n 50 "$log" || true
+    tail -n 40 "$log" || true
     kill -INT "$xpid" 2>/dev/null || true
+    kill -INT "$rpid" 2>/dev/null || true
     wait "$xpid" 2>/dev/null || true
     return 1
   fi
-  apply_chrome
-  echo "Capturing frames for ${keep}s"
-  local n=0 start
-  start=$SECONDS
-  while [ $((SECONDS - start)) -lt "$keep" ]; do
-    if ! kill -0 "$xpid" 2>/dev/null; then
-      echo "Test ended during capture"
-      break
-    fi
-    n=$((n + 1))
-    xcrun simctl io "$BASE_UDID" screenshot "$frames/$(printf '%05d' "$n").png" >/dev/null || true
-  done
-  echo "Captured $n frames in $((SECONDS - start))s"
+  local ready_at
+  ready_at="$(awk -v n="$ready" '$1==n {print $2; exit}' "$marks")"
+  # Let the on-screen hold finish, then stop. The test keeps the app up.
+  local elapsed now_ts remain
+  now_ts="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
+  elapsed="$(python3 -c "print(max(0.0, float('$now_ts') - float('$ready_at')))")"
+  remain="$(python3 -c "print(max(0.0, float('$keep') - float('$elapsed')))")"
+  echo "Holding ${remain}s more (already ${elapsed}s after $ready)"
+  python3 -c "import time; time.sleep(float('$remain'))"
   kill -INT "$xpid" 2>/dev/null || true
   wait "$xpid" 2>/dev/null || true
-  if [ "$n" -lt 8 ]; then
-    echo "Too few frames ($n)"
-    return 1
-  fi
-  local rate mid bytes w h dur
-  rate="$(python3 -c "print(round(max(1.0, $n / float($keep)), 3))")"
-  ffmpeg -y -framerate "$rate" -i "$frames/%05d.png" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
+  stop_record "$rpid" "$raw"
+  local offset
+  offset="$(python3 -c "print(max(0.0, float('$ready_at') - float('$rec_start')))")"
+  echo "Trim offset=${offset}s keep=${keep}s"
+  ffmpeg -y -i "$raw" -ss "$offset" -t "$keep" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
     -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" \
     -crf 18 -preset medium -movflags +faststart "$dest" </dev/null
-  mid="$(printf '%05d' $((n / 2)))"
-  cp "$frames/00001.png" "$DEBUG/${test}-a.png" || true
-  cp "$frames/${mid}.png" "$DEBUG/${test}-b.png" || true
-  rm -rf "$frames"
+  local bytes w h dur fps
   bytes=$(stat -f%z "$dest")
   w=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$dest")
   h=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$dest")
   dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$dest")
-  echo "$(basename "$dest") ${w}x${h} dur=${dur}s frames=$n rate=$rate bytes=$bytes"
+  fps=$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of csv=p=0 "$dest")
+  echo "$(basename "$dest") ${w}x${h} dur=${dur}s fps=${fps} bytes=${bytes}"
   if [ "$h" -le "$w" ]; then
     echo "ERROR not portrait"
     return 1
   fi
+  # A usable coin fall needs more than a frame every couple of seconds.
+  python3 - << PY
+fps = "$fps"
+num, den = (fps.split("/", 1) + ["1"])[:2]
+rate = float(num) / (float(den) or 1)
+print(f"fps_check {rate:.2f}")
+raise SystemExit(0 if rate >= 2.0 else 1)
+PY
   if [ "$bytes" -ge 15000000 ]; then
-    echo "Re-encoding smaller"
     ffmpeg -y -i "$dest" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
       -crf 26 -preset medium -movflags +faststart "$dest.small.mp4" </dev/null
     mv "$dest.small.mp4" "$dest"
-    echo "shrunk to $(stat -f%z "$dest")"
   fi
 }
 

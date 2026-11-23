@@ -128,14 +128,10 @@ final class MarketingCaptureTests: XCTestCase {
         signal("\(name)-done")
     }
 
-    /// Asking for the hierarchy keeps the simulator painting. A plain sleep lets it
-    /// drop to a fraction of a frame per second, and the falling coin disappears.
+    /// Sitting in an element wait is what keeps the simulator presenting frames.
+    /// A tight exists() loop and a plain sleep both let it stall.
     private func pump(_ seconds: TimeInterval, app: XCUIApplication) {
-        let end = Date().addingTimeInterval(seconds)
-        while Date() < end {
-            _ = app.buttons.firstMatch.exists
-            Thread.sleep(forTimeInterval: 0.03)
-        }
+        _ = app.buttons["ESPFramePump"].waitForExistence(timeout: seconds)
     }
 
     @discardableResult

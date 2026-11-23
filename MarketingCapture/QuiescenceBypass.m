@@ -12,11 +12,12 @@ static void ESPInstallQuiescenceBypass(void) {
     static int installed = 0;
     const char *classes[] = {"XCUIApplicationProcess", "XCUIApplicationProcessTracker", "XCAXClient_iOS"};
     const char *sels[] = {
+        // Leave waitForQuiescenceIncludingAnimationsIdle:usingActivity:isPreEvent:
+        // alone. While XCTest sits in that wait, the simulator keeps presenting
+        // frames and the falling coin shows up in the recording. No-oping it
+        // drops the capture to well under one frame per second.
         "waitForQuiescenceIncludingAnimationsIdle:",
         "waitForQuiescenceIncludingAnimationsIdle:isPreEvent:",
-        "waitForQuiescenceIncludingAnimationsIdle:usingActivity:isPreEvent:",
-        "waitForQuiescenceOnAllForegroundApplicationsAsPreEvent:",
-        "_waitForQuiescence",
     };
     int replaced = 0;
     for (int i = 0; i < (int)(sizeof(classes) / sizeof(classes[0])); i++) {
