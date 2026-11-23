@@ -241,9 +241,9 @@ private final class CoinEngine {
     private let width: Int
     private let height: Int
     private let dt = 1.0 / Double(OfflineCapture.fps)
-    // Metal's texture read is bottom-up relative to the scene, which otherwise
-    // draws the piggy standing on its head.
-    private var flip = true
+    // The texture is already upright. Flipping it stands the piggy on its head
+    // and sends the coin upward.
+    private var flip = false
     private var primed = false
     private var currentFrame = 0
     private var simTime = 10_000.0
