@@ -259,66 +259,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    #if DEBUG
-    /// Offline capture only. The first renderer step after a body is created can
-    /// integrate a long catch-up. Hold the spawn pose, let that step advance the
-    /// clock, then put the coin back before the real per-frame steps.
-    private struct HeldCoin {
-        weak var node: CoinNode?
-        var position: CGPoint
-        var rotation: CGFloat
-        var velocity: CGVector
-        var angular: CGFloat
-    }
-    private var heldCoins: [HeldCoin] = []
-    var holdCoins = false
-
-    func holdSpawnedCoins() {
-        holdCoins = true
-        heldCoins = crop.children.compactMap { node in
-            guard let coin = node as? CoinNode else { return nil }
-            return HeldCoin(
-                node: coin, position: coin.position, rotation: coin.zRotation,
-                velocity: coin.physicsBody?.velocity ?? .zero,
-                angular: coin.physicsBody?.angularVelocity ?? 0)
-        }
-    }
-
-    func releaseSpawnedCoins() {
-        for held in heldCoins {
-            guard let coin = held.node else { continue }
-            coin.removeAllActions()
-            coin.position = held.position
-            coin.zRotation = held.rotation
-            coin.alpha = 1
-            coin.didLand = false
-            coin.settling = false
-            coin.slow = 0
-            coin.physicsBody?.velocity = held.velocity
-            coin.physicsBody?.angularVelocity = held.angular
-            coin.physicsBody?.isDynamic = true
-        }
-        heldCoins = []
-        holdCoins = false
-    }
-
-    /// How far the held coin fell toward the slot during the last step. 1 is the whole chute.
-    func travelFraction() -> CGFloat {
-        guard let held = heldCoins.last, let coin = held.node else { return 0 }
-        let dy = held.position.y - coin.position.y
-        let fall = 0.60 * size.height / (1 + Self.sky)
-        return max(0, dy / max(fall, 1))
-    }
-
-    func prepareOfflineCapture() {
-        clearCoins()
-        lastSpawn = 0
-        pending = 0
-        holdCoins = false
-        heldCoins = []
-    }
-    #endif
-
     /// Drop one coin from above the piggy. Extra calls inside `dropInterval` are ignored,
     /// so a fast earnings tick cannot turn into a burst of coins.
     func drop() {
@@ -334,9 +274,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     func didBegin(_ contact: SKPhysicsContact) {
-        #if DEBUG
-        if holdCoins { return }
-        #endif
         let coins = [contact.bodyA.node, contact.bodyB.node].compactMap { $0 as? CoinNode }
         guard let coin = coins.max(by: { speed(of: $0) < speed(of: $1) }), !coin.settling else { return }
         let mass = max(coin.physicsBody?.mass ?? 0, 0.0001)
@@ -358,9 +295,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     override func didSimulatePhysics() {
-        #if DEBUG
-        if holdCoins { return }
-        #endif
         let now = PhysicsTime.now()
         let dt = lastStep == 0 || now - lastStep > 0.1 ? 1.0 / 60 : min(0.05, now - lastStep)
         lastStep = now
@@ -388,9 +322,6 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     override func didFinishUpdate() {
-        #if DEBUG
-        if holdCoins { return }
-        #endif
         if !settleQueue.isEmpty {
             let batch = settleQueue
             settleQueue.removeAll()

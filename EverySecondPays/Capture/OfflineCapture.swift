@@ -241,15 +241,13 @@ private final class CoinEngine {
     private let width: Int
     private let height: Int
     private let dt = 1.0 / Double(OfflineCapture.fps)
-    private let t0 = 10_000.0
     // Metal's texture read is bottom-up relative to the scene, which otherwise
     // draws the piggy standing on its head.
     private var flip = true
     private var primed = false
     private var currentFrame = 0
     private var simTime = 10_000.0
-    /// 1 when a frame is really 1/30 s. Lower when the renderer integrates too much time.
-    private var speedScale: CGFloat = 1
+    private var lastWall = 0.0
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -274,56 +272,36 @@ private final class CoinEngine {
     func frame(at index: Int, mainStart: Int) throws -> UIImage {
         currentFrame = index
         if !primed {
-            step(to: t0, speed: 1)
-            step(to: t0, speed: 1)
-            calibrate()
+            lastWall = CACurrentMediaTime()
+            step(simDt: dt)
             primed = true
         }
-        if index >= mainStart {
-            let into = index - mainStart
-            if into % OfflineCapture.fps == 8 {
-                scene.drop()
-                scene.holdSpawnedCoins()
-                // The first step after spawn can integrate far too much time.
-                // Take that step, then put the coin back on its release point.
-                simTime += dt
-                step(to: simTime, speed: 1)
-                scene.releaseSpawnedCoins()
-            }
-            simTime += dt
-            step(to: simTime - dt / 2, speed: speedScale)
-            step(to: simTime, speed: speedScale)
+        guard index >= mainStart else {
+            // Keep the wall clock current while the settings screen is on screen.
+            lastWall = CACurrentMediaTime()
+            return try draw(flip: flip)
         }
+        let into = index - mainStart
+        if into % OfflineCapture.fps == 8 { scene.drop() }
+        // Two substeps. Each one is scaled so the wall time since the last
+        // update becomes exactly half a frame, however slow the renderer is.
+        step(simDt: dt / 2)
+        step(simDt: dt / 2)
         return try draw(flip: flip)
     }
 
-    /// Measure one real frame of fall. A fraction near 1 means the renderer is
-    /// stepping many times too far, so later frames run with a slower world.
-    private func calibrate() {
-        PhysicsTime.override = t0
-        scene.drop()
-        scene.holdSpawnedCoins()
-        step(to: t0 + dt, speed: 1)
-        scene.releaseSpawnedCoins()
-        scene.holdSpawnedCoins()
-        step(to: t0 + 2 * dt, speed: 1)
-        let fraction = scene.travelFraction()
-        if fraction > 0.18 {
-            speedScale = max(0.02, min(1, 0.045 / max(fraction, 0.001)))
-        }
-        print(String(format: "ESP_CALIBRATE fraction %.3f speed %.3f", Double(fraction), Double(speedScale)))
-        scene.releaseSpawnedCoins()
-        scene.prepareOfflineCapture()
-        simTime = t0 + 2 * dt
-        step(to: simTime, speed: speedScale)
-    }
-
-    private func step(to time: TimeInterval, speed: CGFloat) {
-        PhysicsTime.override = time
+    /// SpriteKit advances physics by wall-clock time, not by the `atTime` we pass.
+    /// Scale the world so that interval always equals `simDt`.
+    private func step(simDt: Double) {
+        let wall = CACurrentMediaTime()
+        let elapsed = lastWall == 0 ? simDt : max(wall - lastWall, 1.0 / 500)
+        lastWall = wall
+        simTime += simDt
+        PhysicsTime.override = simTime
         scene.isPaused = false
         scene.speed = 1
-        scene.physicsWorld.speed = speed
-        renderer.update(atTime: time)
+        scene.physicsWorld.speed = CGFloat(simDt / elapsed)
+        renderer.update(atTime: wall)
     }
 
     private func draw(flip: Bool) throws -> UIImage {
