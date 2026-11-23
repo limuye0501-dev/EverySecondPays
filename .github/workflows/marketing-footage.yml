@@ -1,0 +1,55 @@
+name: Marketing footage
+
+# Manual simulator recordings for vertical ads. Does not archive, sign, or upload a build.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -viE "beta|RC" | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Install xcodegen and ffmpeg
+        run: brew install xcodegen ffmpeg
+
+      - name: Generate project and build for testing
+        run: |
+          xcodegen generate
+          xcodebuild -list -project EverySecondPays.xcodeproj
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project EverySecondPays.xcodeproj \
+            -scheme MarketingCapture \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|TEST BUILD (SUCCEEDED|FAILED)|BUILD (SUCCEEDED|FAILED)" || true
+          grep -qE "TEST BUILD SUCCEEDED|BUILD SUCCEEDED" build.log
+
+      - name: Record clips
+        run: bash tools/record_marketing_footage.sh
+
+      - name: Upload footage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-footage
+          if-no-files-found: warn
+          path: |
+            footage/final
+            footage/debug
+            footage/raw
+            build.log
+            footage/uitest-*.log

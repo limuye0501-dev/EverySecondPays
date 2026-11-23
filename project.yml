@@ -73,3 +73,22 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG WIDGET_SNAPSHOT
         Release:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: WIDGET_SNAPSHOT
+  # Drives the marketing-footage workflow only. Not part of the app scheme or archive.
+  MarketingCapture:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [MarketingCapture]
+    dependencies:
+      - target: EverySecondPays
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.limuye.everysecondpays.marketingcapture
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
+        TEST_TARGET_NAME: EverySecondPays
+    scheme:
+      gatherCoverageData: false
+      testTargets:
+        - name: MarketingCapture
+          parallelizable: false
