@@ -4,6 +4,17 @@ import SpriteKit
 import SwiftUI
 import UIKit
 
+/// Wall-clock time for the live app. Offline capture (DEBUG only) pins this so a
+/// frame can be rendered without waiting for the simulator's display link.
+enum PhysicsTime {
+    #if DEBUG
+    static var override: TimeInterval?
+    static func now() -> TimeInterval { override ?? CACurrentMediaTime() }
+    #else
+    static func now() -> TimeInterval { CACurrentMediaTime() }
+    #endif
+}
+
 /// One real collision. `land` is the coin's first solid hit (glass spring).
 /// Later `bounce` events are the following impacts on glass, the fixed pile, or another coin.
 enum PiggyHit {
@@ -66,7 +77,7 @@ final class PiggyBridge: ObservableObject {
 
 /// Rigid-body coin inside the glass. Removed after it rests, so it cannot raise the pile.
 private final class CoinNode: SKSpriteNode {
-    let born = CACurrentMediaTime()
+    let born = PhysicsTime.now()
     var slow: TimeInterval = 0
     var settling = false
     var didLand = false
@@ -75,6 +86,9 @@ private final class CoinNode: SKSpriteNode {
     var hapticsPlayed = 0
     var lastHaptic = 0.0
     var lastSound = 0.0
+    /// Offline capture places the coin along the chute itself. The solver only takes over at the slot.
+    var offlineReleased = false
+    var offlineNX: CGFloat = -1
 
     init(texture: SKTexture, size: CGSize) {
         super.init(texture: texture, color: .white, size: size)
@@ -240,6 +254,45 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         removeCoinNodes()
     }
 
+    #if DEBUG
+    /// Puts each new coin on a smooth chute. The simulator's physics step is too coarse
+    /// to show the fall, so capture sets the position every frame until the slot.
+    func guideOfflineFalls() {
+        let now = PhysicsTime.now()
+        let chute: TimeInterval = 0.70
+        for coin in crop.children.compactMap({ $0 as? CoinNode }) where !coin.offlineReleased {
+            if coin.offlineNX < 0 {
+                coin.offlineNX = min(0.56, max(0.46, coin.position.x / max(size.width, 1)))
+            }
+            let age = max(0, now - coin.born)
+            if age < chute {
+                let u = CGFloat(age / chute)
+                let ny = Self.releaseY + (0.30 - Self.releaseY) * u * u
+                coin.position = point(coin.offlineNX, ny)
+                coin.zRotation = CGFloat(age) * 1.4
+                coin.physicsBody?.isDynamic = false
+                coin.physicsBody?.velocity = .zero
+                coin.physicsBody?.angularVelocity = 0
+            } else {
+                coin.offlineReleased = true
+                coin.physicsBody?.isDynamic = true
+                let inbound = max(photoHeight * 0.9, 240)
+                coin.physicsBody?.velocity = CGVector(dx: 0, dy: -inbound)
+                coin.physicsBody?.angularVelocity = 1.2
+            }
+        }
+    }
+
+    /// Drops any coin left over from an offline-capture timing probe.
+    func resetForOfflineCapture() {
+        clearCoins()
+        lastSpawn = 0
+        pending = 0
+        speed = 1
+        physicsWorld.speed = 1
+    }
+    #endif
+
     private func removeCoinNodes() {
         settleQueue.removeAll()
         crop.children.forEach {
@@ -251,14 +304,14 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     /// Drop one coin from above the piggy. Extra calls inside `dropInterval` are ignored,
     /// so a fast earnings tick cannot turn into a burst of coins.
     func drop() {
-        let now = CACurrentMediaTime()
+        let now = PhysicsTime.now()
         guard now - lastSpawn >= Self.dropInterval else { return }
         isPaused = false
         physicsWorld.speed = 1
         rebuildIfNeeded()
         guard glassReady else { pending = 1; return }
-        guard CACurrentMediaTime() - lastSpawn >= Self.dropInterval else { return }
-        lastSpawn = CACurrentMediaTime()
+        guard PhysicsTime.now() - lastSpawn >= Self.dropInterval else { return }
+        lastSpawn = PhysicsTime.now()
         spawn()
     }
 
@@ -271,7 +324,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         guard characteristic > 1 else { return }
         let strength = min(1, max(0, Double(dv / characteristic)))
         guard strength >= 0.16 else { return }
-        let now = CACurrentMediaTime()
+        let now = PhysicsTime.now()
         guard coin.hapticsPlayed < 6, now - coin.lastHaptic >= 0.07 else { return }
         coin.lastHaptic = now
         coin.hapticsPlayed += 1
@@ -284,7 +337,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     override func didSimulatePhysics() {
-        let now = CACurrentMediaTime()
+        let now = PhysicsTime.now()
         let dt = lastStep == 0 || now - lastStep > 0.1 ? 1.0 / 60 : min(0.05, now - lastStep)
         lastStep = now
         let restV = max(18, size.height * 0.035)
@@ -371,7 +424,7 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
         layoutPhoto()
         if pending > 0 {
             pending = 0
-            let now = CACurrentMediaTime()
+            let now = PhysicsTime.now()
             if now - lastSpawn >= Self.dropInterval {
                 lastSpawn = now
                 spawn()

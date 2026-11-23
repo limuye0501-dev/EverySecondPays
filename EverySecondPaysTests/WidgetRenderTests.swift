@@ -73,9 +73,38 @@ final class WidgetRenderTests: XCTestCase {
         }
     }
 
-    private func render(entry: Entry, family: WidgetFamily, size: CGSize) throws -> UIImage {
+    func testMarketingHomeWidgets() throws {
+        var s = WorkSettings()
+        s.onboarded = true
+        s.monthlySalary = 5_000
+        s.workDays = [2, 3, 4, 5, 6]
+        s.startMinutes = 9 * 60
+        s.endMinutes = 18 * 60
+        s.lunchBreakMinutes = 60
+        s.currencySymbol = "$"
+        s.skin = "glass"
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = Calendar.current.timeZone
+        s.installDate = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 1, day: 1)))
+        let date = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 11, day: 18, hour: 14, minute: 30)))
+        let entry = Entry(date: date, s: s)
+        XCTAssertFalse(s.showsExampleSalary)
+        XCTAssertGreaterThan(Earnings(s: s).earnedToday(date), 1)
+        XCTAssertGreaterThan(Earnings(s: s).monthTotal(date), Earnings(s: s).earnedToday(date) * 2)
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("esp-marketing", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let small = try render(entry: entry, family: .systemSmall, size: CGSize(width: 170, height: 170), staticCountdown: true)
+        let medium = try render(entry: entry, family: .systemMedium, size: CGSize(width: 364, height: 170), staticCountdown: true)
+        try XCTUnwrap(small.pngData()).write(to: dir.appendingPathComponent("widget-en-small.png"))
+        try XCTUnwrap(medium.pngData()).write(to: dir.appendingPathComponent("widget-en-medium.png"))
+        print("ESP_WIDGET_DIR \(dir.path)")
+    }
+
+    private func render(entry: Entry, family: WidgetFamily, size: CGSize, staticCountdown: Bool = false) throws -> UIImage {
         let view = HomeWidgetView(entry: entry)
             .environment(\.forcedWidgetFamily, family)
+            .environment(\.espStaticCountdown, staticCountdown)
             .environment(\.colorScheme, .dark)
             .frame(width: size.width, height: size.height)
             .background {

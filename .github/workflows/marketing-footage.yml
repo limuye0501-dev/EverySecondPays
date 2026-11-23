@@ -1,0 +1,67 @@
+name: Marketing footage
+
+# Manual offline capture for vertical ads. Does not archive, sign, or upload a build.
+# The push trigger exists so this branch can run before the file is on the default branch.
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/marketing-footage-ba0f]
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -viE "beta|RC" | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Install xcodegen and ffmpeg
+        run: brew install xcodegen ffmpeg
+
+      - name: Generate project and build for testing
+        run: |
+          xcodegen generate
+          xcodebuild -list -project EverySecondPays.xcodeproj
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project EverySecondPays.xcodeproj \
+            -scheme OfflineCaptureTests \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|TEST BUILD (SUCCEEDED|FAILED)|BUILD (SUCCEEDED|FAILED)" || true
+          grep -qE "TEST BUILD SUCCEEDED|BUILD SUCCEEDED" build.log
+          xcodebuild build-for-testing \
+            -project EverySecondPays.xcodeproj \
+            -scheme EverySecondPays \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee -a build.log | grep -E "error:|TEST BUILD (SUCCEEDED|FAILED)|BUILD (SUCCEEDED|FAILED)" || true
+          grep -qE "TEST BUILD SUCCEEDED|BUILD SUCCEEDED" build.log
+
+      - name: Render frames and encode
+        run: bash tools/assemble_offline_capture.sh
+
+      - name: Upload footage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-footage
+          if-no-files-found: warn
+          path: |
+            footage/final
+            footage/debug
+            footage/raw
+            build.log
+            footage/test-*.log
