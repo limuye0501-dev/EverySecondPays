@@ -9,11 +9,11 @@ final class MarketingCaptureTests: XCTestCase {
     }
 
     func testMainEnglish() {
-        holdMain(lang: "en", loc: "en_US", seconds: 38, name: "main-en")
+        holdMain(lang: "en", loc: "en_US", seconds: 50, name: "main-en")
     }
 
     func testMainChinese() {
-        holdMain(lang: "zh-Hans", loc: "zh_CN", seconds: 28, name: "main-zh")
+        holdMain(lang: "zh-Hans", loc: "zh_CN", seconds: 42, name: "main-zh")
     }
 
     func testSettingsFlow() {
@@ -35,7 +35,7 @@ final class MarketingCaptureTests: XCTestCase {
         else if any.exists { any.tap() }
         else { logTree(app, "settings-no-done") }
         signal("settings-closed")
-        pump(12, app: app)
+        pump(18, app: app)
         signal("settings-done")
     }
 
@@ -50,7 +50,7 @@ final class MarketingCaptureTests: XCTestCase {
         pump(6, app: app)
         share.tap()
         signal("share-tapped")
-        pump(10, app: app)
+        pump(14, app: app)
         signal("share-done")
     }
 
