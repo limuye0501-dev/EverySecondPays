@@ -1,12 +1,9 @@
 name: Marketing footage
 
 # Manual simulator recordings for vertical ads. Does not archive, sign, or upload a build.
-# Push is limited to this branch so the job can run before GitHub will list
-# workflow_dispatch (that list only includes workflows on the default branch).
+# GitHub only shows the Run workflow button once this file is on the default branch.
 on:
   workflow_dispatch:
-  push:
-    branches: [cursor/marketing-footage-ba0f]
 
 permissions:
   contents: read
