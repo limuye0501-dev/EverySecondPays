@@ -86,6 +86,9 @@ private final class CoinNode: SKSpriteNode {
     var hapticsPlayed = 0
     var lastHaptic = 0.0
     var lastSound = 0.0
+    /// Offline capture places the coin along the chute itself. The solver only takes over at the slot.
+    var offlineReleased = false
+    var offlineNX: CGFloat = -1
 
     init(texture: SKTexture, size: CGSize) {
         super.init(texture: texture, color: .white, size: size)
@@ -252,6 +255,34 @@ final class PiggyBankScene: SKScene, SKPhysicsContactDelegate {
     }
 
     #if DEBUG
+    /// Puts each new coin on a smooth chute. The simulator's physics step is too coarse
+    /// to show the fall, so capture sets the position every frame until the slot.
+    func guideOfflineFalls() {
+        let now = PhysicsTime.now()
+        let chute: TimeInterval = 0.70
+        for coin in crop.children.compactMap({ $0 as? CoinNode }) where !coin.offlineReleased {
+            if coin.offlineNX < 0 {
+                coin.offlineNX = min(0.56, max(0.46, coin.position.x / max(size.width, 1)))
+            }
+            let age = max(0, now - coin.born)
+            if age < chute {
+                let u = CGFloat(age / chute)
+                let ny = Self.releaseY + (0.30 - Self.releaseY) * u * u
+                coin.position = point(coin.offlineNX, ny)
+                coin.zRotation = CGFloat(age) * 1.4
+                coin.physicsBody?.isDynamic = false
+                coin.physicsBody?.velocity = .zero
+                coin.physicsBody?.angularVelocity = 0
+            } else {
+                coin.offlineReleased = true
+                coin.physicsBody?.isDynamic = true
+                let inbound = max(photoHeight * 0.9, 240)
+                coin.physicsBody?.velocity = CGVector(dx: 0, dy: -inbound)
+                coin.physicsBody?.angularVelocity = 1.2
+            }
+        }
+    }
+
     /// Drops any coin left over from an offline-capture timing probe.
     func resetForOfflineCapture() {
         clearCoins()

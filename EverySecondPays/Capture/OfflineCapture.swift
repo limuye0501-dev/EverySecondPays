@@ -337,6 +337,7 @@ private final class CoinEngine {
         scene.speed = 1
         scene.physicsWorld.speed = CGFloat(min(12, simDt / elapsed * bias))
         renderer.update(atTime: wall)
+        scene.guideOfflineFalls()
         if probing { _ = try? draw(flip: flip) }
     }
 
