@@ -7,7 +7,7 @@ import UIKit
 /// Renders marketing frames by stepping the real coin scene at a fixed rate.
 /// Compiled out of Release, so the App Store build does not include it.
 enum OfflineCapture {
-    static let fps = 60
+    static let fps = 30
     static let scale: CGFloat = 3
     static let pointSize = CGSize(width: 440, height: 956)
 
@@ -84,6 +84,7 @@ enum OfflineCapture {
         }
 
         for frame in 0..<total {
+            try autoreleasepool {
             let t = Double(frame) / Double(fps)
             let showMain = frame >= mainStart - fadeFrames
             let image: UIImage
@@ -112,8 +113,9 @@ enum OfflineCapture {
                 image = try cachedSettings(t / max(clip.settingsLead, 0.01))
             }
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", frame + 1))
-            guard let data = image.jpegData(compressionQuality: 0.95) else { throw CaptureError.encode }
+            guard let data = image.jpegData(compressionQuality: 0.92) else { throw CaptureError.encode }
             try data.write(to: url)
+            }
         }
 
         let file = LandingFile(

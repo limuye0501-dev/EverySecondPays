@@ -80,7 +80,7 @@ encode_clip() {
   count="$(find "$dir" -name 'frame-*.jpg' | wc -l | tr -d ' ')"
   echo "$name has $count frames, expected $frames"
   if [ "$count" -ne "$frames" ]; then exit 1; fi
-  ffmpeg -y -framerate 60 -start_number 1 -i "$dir/frame-%05d.jpg" \
+  ffmpeg -y -framerate 30 -start_number 1 -i "$dir/frame-%05d.jpg" \
     -frames:v "$frames" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
     -crf 17 -preset medium -movflags +faststart "$out" </dev/null
   local bytes nb dur
@@ -102,7 +102,7 @@ import subprocess, sys
 directory, name = sys.argv[1], sys.argv[2]
 # Frame 40 and 41 are during the first coin's fall on main clips.
 # The settings clip's coins start after the 8s lead, so use a later pair.
-pair = (500, 501) if name.startswith("03") else (40, 41)
+pair = (280, 281) if name.startswith("03") else (24, 25)
 def rgb(n):
     path = f"{directory}/frame-{n:05d}.jpg"
     return subprocess.check_output(["ffmpeg","-i",path,"-f","rawvideo","-pix_fmt","rgb24","-"], stderr=subprocess.DEVNULL)
@@ -114,9 +114,9 @@ if diff < 1000:
 PY
 }
 
-encode_clip 01-en-main 1800 "$FINAL/01-en-main-coins-dropping.mp4"
-encode_clip 02-zh-Hans-main 1200 "$FINAL/02-zh-Hans-main-coins-dropping.mp4"
-encode_clip 03-en-settings 1200 "$FINAL/03-en-settings-then-coins.mp4"
+encode_clip 01-en-main 900 "$FINAL/01-en-main-coins-dropping.mp4"
+encode_clip 02-zh-Hans-main 600 "$FINAL/02-zh-Hans-main-coins-dropping.mp4"
+encode_clip 03-en-settings 600 "$FINAL/03-en-settings-then-coins.mp4"
 
 while IFS= read -r candidate; do
   find "$candidate" -maxdepth 1 -type f \( -name 'share-card-*.png' -o -name 'widget-en-*.png' \) -exec cp {} "$FINAL/" \;
