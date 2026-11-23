@@ -248,6 +248,8 @@ private final class CoinEngine {
     private var primed = false
     private var currentFrame = 0
     private var simTime = 10_000.0
+    /// 1 when a frame is really 1/30 s. Lower when the renderer integrates too much time.
+    private var speedScale: CGFloat = 1
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -272,42 +274,56 @@ private final class CoinEngine {
     func frame(at index: Int, mainStart: Int) throws -> UIImage {
         currentFrame = index
         if !primed {
-            // Two updates at the same time give the world a zero delta to start from.
-            step(to: t0)
-            step(to: t0)
-            simTime = t0
+            step(to: t0, speed: 1)
+            step(to: t0, speed: 1)
+            calibrate()
             primed = true
         }
         if index >= mainStart {
             let into = index - mainStart
             if into % OfflineCapture.fps == 8 {
                 scene.drop()
-                // The first integration after a body is added otherwise catches up
-                // from time zero and lands the coin in a single frame.
-                absorbCatchUp()
+                scene.holdSpawnedCoins()
+                // The first step after spawn can integrate far too much time.
+                // Take that step, then put the coin back on its release point.
+                simTime += dt
+                step(to: simTime, speed: 1)
+                scene.releaseSpawnedCoins()
             }
             simTime += dt
-            step(to: simTime - dt / 2)
-            step(to: simTime)
+            step(to: simTime - dt / 2, speed: speedScale)
+            step(to: simTime, speed: speedScale)
         }
         return try draw(flip: flip)
     }
 
-    private func step(to time: TimeInterval) {
-        PhysicsTime.override = time
-        scene.isPaused = false
-        scene.physicsWorld.speed = 1
-        renderer.update(atTime: time)
+    /// Measure one real frame of fall. A fraction near 1 means the renderer is
+    /// stepping many times too far, so later frames run with a slower world.
+    private func calibrate() {
+        PhysicsTime.override = t0
+        scene.drop()
+        scene.holdSpawnedCoins()
+        step(to: t0 + dt, speed: 1)
+        scene.releaseSpawnedCoins()
+        scene.holdSpawnedCoins()
+        step(to: t0 + 2 * dt, speed: 1)
+        let fraction = scene.travelFraction()
+        if fraction > 0.18 {
+            speedScale = max(0.02, min(1, 0.045 / max(fraction, 0.001)))
+        }
+        print(String(format: "ESP_CALIBRATE fraction %.3f speed %.3f", Double(fraction), Double(speedScale)))
+        scene.releaseSpawnedCoins()
+        scene.prepareOfflineCapture()
+        simTime = t0 + 2 * dt
+        step(to: simTime, speed: speedScale)
     }
 
-    /// Advance the renderer clock without moving bodies, so the next real step is one frame.
-    private func absorbCatchUp() {
-        let sceneSpeed = scene.speed
-        scene.speed = 0
-        scene.physicsWorld.speed = 0
-        renderer.update(atTime: PhysicsTime.override ?? simTime)
-        scene.speed = sceneSpeed
-        scene.physicsWorld.speed = 1
+    private func step(to time: TimeInterval, speed: CGFloat) {
+        PhysicsTime.override = time
+        scene.isPaused = false
+        scene.speed = 1
+        scene.physicsWorld.speed = speed
+        renderer.update(atTime: time)
     }
 
     private func draw(flip: Bool) throws -> UIImage {
