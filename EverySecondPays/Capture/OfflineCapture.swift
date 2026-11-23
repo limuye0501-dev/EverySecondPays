@@ -250,6 +250,7 @@ private final class CoinEngine {
     private var lastWall = 0.0
     /// Extra scale so a coin's fall lasts about 0.6 s even if the world speed is not linear.
     private var bias = 1.0
+    private var probing = false
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -295,9 +296,11 @@ private final class CoinEngine {
             let delay = sampleFall(bias: trial)
             print(String(format: "ESP_PROBE delay %d bias %.3f", delay, trial))
             if (14...26).contains(delay) { break }
+            // No contact at all means this trial did not run the solver. Keep the last good scale.
+            if delay > 40 { break }
             let next = trial * 18.0 / Double(max(delay, 1))
             if abs(next - trial) < 0.08 { break }
-            trial = min(40, max(0.05, next))
+            trial = min(12, max(0.25, next))
         }
         bias = trial
         onLand = saved
@@ -311,17 +314,20 @@ private final class CoinEngine {
         lastWall = CACurrentMediaTime()
         var landedAt: Int?
         onLand = { landedAt = $0 }
+        probing = true
         for i in 0..<48 {
             currentFrame = i
             if i == 6 { scene.drop() }
             step(simDt: dt, bias: bias)
             if landedAt != nil { break }
-            Thread.sleep(forTimeInterval: 0.2)
+            Thread.sleep(forTimeInterval: 0.15)
         }
+        probing = false
         return (landedAt ?? 90) - 6
     }
 
-    /// The renderer integrates wall-clock time. `scene.speed` turns that gap into `simDt`.
+    /// The renderer integrates wall-clock time. Physics-world speed turns that gap into `simDt`.
+    /// Contacts are delivered by the render pass, so a probe has to draw as well as step.
     private func step(simDt: Double, bias: Double) {
         let wall = CACurrentMediaTime()
         let elapsed = lastWall == 0 ? simDt : max(wall - lastWall, 1.0 / 500)
@@ -329,9 +335,10 @@ private final class CoinEngine {
         simTime += simDt
         PhysicsTime.override = simTime
         scene.isPaused = false
-        scene.physicsWorld.speed = 1
-        scene.speed = CGFloat(simDt / elapsed * bias)
+        scene.speed = 1
+        scene.physicsWorld.speed = CGFloat(min(12, simDt / elapsed * bias))
         renderer.update(atTime: wall)
+        if probing { _ = try? draw(flip: flip) }
     }
 
     private func draw(flip: Bool) throws -> UIImage {
