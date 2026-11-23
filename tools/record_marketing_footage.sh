@@ -58,9 +58,8 @@ apply_chrome() {
 focus_simulator() {
   open -a Simulator --args -CurrentDeviceUDID "$BASE_UDID" || true
   sleep 1
-  # A Pro Max window at full scale is taller than the runner's display, so
-  # CoreSimulator treats it as occluded and paints a fraction of a frame per
-  # second. Fit it on screen before capturing.
+  # Keep the device window on the visible desktop. Resizing before the test
+  # runner attaches makes accessibility time out, so this only activates.
   osascript <<'APPLESCRIPT' || true
 tell application "Simulator" to activate
 tell application "System Events"
@@ -70,11 +69,7 @@ tell application "System Events"
       set value of attribute "AXMinimized" of window 1 to false
     end try
     try
-      click menu item "Fit Screen" of menu 1 of menu bar item "Window" of menu bar 1
-    end try
-    try
       set position of window 1 to {40, 30}
-      set size of window 1 to {420, 900}
     end try
   end tell
 end tell
@@ -99,11 +94,32 @@ stop_record() {
   return 1
 }
 
-# Drives one UI test and grabs a real framebuffer image as fast as the
-# simulator will serve them for `keep` seconds after the ready signal.
-# simctl recordVideo only receives the throttled present rate on this runner.
+# Drives one UI test. After the app signals it is on screen, grab framebuffer
+# stills for `keep` seconds and turn them into the clip.
 # $1 test method  $2 signal name  $3 keep seconds  $4 destination mp4
 run_flow() {
+  local test="$1" ready="$2" keep="$3" dest="$4"
+  local attempt
+  for attempt in 1 2; do
+    if run_flow_once "$test" "$ready" "$keep" "$dest"; then
+      return 0
+    fi
+    echo "Attempt $attempt failed for $test"
+    if [ "$attempt" = "1" ]; then
+      echo "Rebooting simulator and retrying"
+      xcrun simctl shutdown "$BASE_UDID" || true
+      xcrun simctl boot "$BASE_UDID"
+      xcrun simctl bootstatus "$BASE_UDID" -b
+      xcrun simctl spawn "$BASE_UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool false || true
+      apply_chrome
+      focus_simulator
+      xcrun simctl install "$BASE_UDID" "$APP"
+    fi
+  done
+  return 1
+}
+
+run_flow_once() {
   local test="$1" ready="$2" keep="$3" dest="$4"
   local log="$ROOT/footage/uitest-${test}.log"
   local marks="$ROOT/footage/marks-${test}.txt"
@@ -123,34 +139,38 @@ run_flow() {
     -parallel-testing-enabled NO \
     -maximum-concurrent-test-simulator-destinations 1 \
     -test-timeouts-enabled YES \
-    -default-test-execution-time-allowance 220 \
-    -maximum-test-execution-time-allowance 260 \
+    -default-test-execution-time-allowance 240 \
+    -maximum-test-execution-time-allowance 300 \
     CODE_SIGNING_ALLOWED=NO &
   local xpid=$!
   local i found=0
-  for i in $(seq 1 200); do
+  for i in $(seq 1 300); do
     if [ -f "$marks" ] && awk -v n="$ready" '$1==n {found=1} END{exit !found}' "$marks"; then
       found=1
       break
     fi
     if ! kill -0 "$xpid" 2>/dev/null; then
+      echo "Test process ended before $ready"
       break
     fi
     sleep 1
   done
   if [ "$found" -ne 1 ]; then
     echo "Missing signal $ready"
-    tail -n 40 "$log" || true
+    tail -n 50 "$log" || true
     kill -INT "$xpid" 2>/dev/null || true
     wait "$xpid" 2>/dev/null || true
     return 1
   fi
-  focus_simulator
   apply_chrome
   echo "Capturing frames for ${keep}s"
-  local n=0 start now
+  local n=0 start
   start=$SECONDS
   while [ $((SECONDS - start)) -lt "$keep" ]; do
+    if ! kill -0 "$xpid" 2>/dev/null; then
+      echo "Test ended during capture"
+      break
+    fi
     n=$((n + 1))
     xcrun simctl io "$BASE_UDID" screenshot "$frames/$(printf '%05d' "$n").png" >/dev/null || true
   done
@@ -161,17 +181,15 @@ run_flow() {
     echo "Too few frames ($n)"
     return 1
   fi
-  local rate
-  rate="$(python3 -c "print(max(1.0, $n / float($keep)))")"
+  local rate mid bytes w h dur
+  rate="$(python3 -c "print(round(max(1.0, $n / float($keep)), 3))")"
   ffmpeg -y -framerate "$rate" -i "$frames/%05d.png" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
     -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" \
     -crf 18 -preset medium -movflags +faststart "$dest" </dev/null
-  local mid
   mid="$(printf '%05d' $((n / 2)))"
   cp "$frames/00001.png" "$DEBUG/${test}-a.png" || true
   cp "$frames/${mid}.png" "$DEBUG/${test}-b.png" || true
   rm -rf "$frames"
-  local bytes w h dur
   bytes=$(stat -f%z "$dest")
   w=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$dest")
   h=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$dest")
@@ -186,8 +204,7 @@ run_flow() {
     ffmpeg -y -i "$dest" -an -c:v libx264 -profile:v high -pix_fmt yuv420p \
       -crf 26 -preset medium -movflags +faststart "$dest.small.mp4" </dev/null
     mv "$dest.small.mp4" "$dest"
-    bytes=$(stat -f%z "$dest")
-    echo "shrunk to $bytes"
+    echo "shrunk to $(stat -f%z "$dest")"
   fi
 }
 
