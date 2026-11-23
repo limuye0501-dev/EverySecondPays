@@ -24,18 +24,18 @@ final class MarketingCaptureTests: XCTestCase {
             return
         }
         signal("settings-ready")
-        Thread.sleep(forTimeInterval: 7)
+        pump(7, app: app)
         gear.tap()
         let titled = app.navigationBars["Settings"].buttons["Done"]
         let any = app.buttons["Done"]
         let open = titled.waitForExistence(timeout: 8) || any.waitForExistence(timeout: 2)
         signal(open ? "settings-open" : "settings-missing")
-        Thread.sleep(forTimeInterval: 8)
+        pump(8, app: app)
         if titled.exists { titled.tap() }
         else if any.exists { any.tap() }
         else { logTree(app, "settings-no-done") }
         signal("settings-closed")
-        Thread.sleep(forTimeInterval: 12)
+        pump(12, app: app)
         signal("settings-done")
     }
 
@@ -47,10 +47,10 @@ final class MarketingCaptureTests: XCTestCase {
             return
         }
         signal("share-ready")
-        Thread.sleep(forTimeInterval: 6)
+        pump(6, app: app)
         share.tap()
         signal("share-tapped")
-        Thread.sleep(forTimeInterval: 10)
+        pump(10, app: app)
         signal("share-done")
     }
 
@@ -107,7 +107,7 @@ final class MarketingCaptureTests: XCTestCase {
         add.tap()
         if sb.buttons["Done"].waitForExistence(timeout: 4) { sb.buttons["Done"].tap() }
         signal("widget-visible")
-        Thread.sleep(forTimeInterval: 8)
+        pump(8, app: sb)
         signal("widget-done")
     }
 
@@ -124,8 +124,18 @@ final class MarketingCaptureTests: XCTestCase {
             return
         }
         signal("\(name)-ready")
-        Thread.sleep(forTimeInterval: seconds)
+        pump(seconds, app: app)
         signal("\(name)-done")
+    }
+
+    /// Asking for the hierarchy keeps the simulator painting. A plain sleep lets it
+    /// drop to a fraction of a frame per second, and the falling coin disappears.
+    private func pump(_ seconds: TimeInterval, app: XCUIApplication) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            _ = app.buttons.firstMatch.exists
+            Thread.sleep(forTimeInterval: 0.03)
+        }
     }
 
     @discardableResult

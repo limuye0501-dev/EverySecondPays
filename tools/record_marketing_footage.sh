@@ -225,6 +225,9 @@ CAFF_PID=$!
 xcrun simctl shutdown all || true
 BASE_UDID="$(xcrun simctl create "ESPFootage" "$TYPE" "$RUNTIME")"
 echo "Created $BASE_UDID"
+# Open the Simulator app before boot so the device window is on screen and
+# CoreSimulator does not throttle the framebuffer down to a fraction of a frame.
+open -a Simulator --args -CurrentDeviceUDID "$BASE_UDID" || true
 set_clock 1230
 
 xcrun simctl boot "$BASE_UDID"
